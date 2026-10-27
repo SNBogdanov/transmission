@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib> // getenv
 #include <iterator>
 #include <list>
 #include <string>
@@ -330,6 +331,11 @@ std::string tr_getWebClientDir([[maybe_unused]] tr_session const* session)
 std::string tr_getSessionIdDir()
 {
 #ifndef _WIN32
+
+    if (auto const* const dir = std::getenv("TRANSMISSION_SESSION_ID_DIR"); dir != nullptr && dir[0] != '\0')
+    {
+        return std::string{ dir };
+    }
 
     return std::string{ "/tmp"sv };
 

@@ -142,6 +142,18 @@ bool to_int(tr_variant const& src, T* tgt)
         return true;
     }
 
+    if constexpr (std::is_same_v<T, uint16_t>)
+    {
+        if (auto const val = src.value_if<std::string_view>())
+        {
+            if (auto const parsed = tr_num_parse<uint32_t>(*val, nullptr, 8); parsed)
+            {
+                *tgt = static_cast<T>(*parsed);
+                return true;
+            }
+        }
+    }
+
     return false;
 }
 
@@ -216,7 +228,7 @@ bool to_mode_t(tr_variant const& src, tr_mode_t* tgt)
 
 tr_variant from_mode_t(tr_mode_t const& val)
 {
-    return fmt::format("{:#03o}", val);
+    return fmt::format("{:#03o}", static_cast<uint16_t>(val));
 }
 
 // ---

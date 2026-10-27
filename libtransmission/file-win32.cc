@@ -533,6 +533,50 @@ bool tr_sys_path_remove(std::string_view const path, tr_error* error)
     return ret;
 }
 
+uint64_t tr_sys_path_get_size_on_disk(std::string_view const path, tr_error* error)
+{
+    auto const fd = open_file(path, FILE_READ_ATTRIBUTES, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, error);
+    if (fd == TR_BAD_SYS_FILE)
+    {
+        return 0;
+    }
+
+    FILE_STANDARD_INFO info = {};
+    bool const ok = to_bool(GetFileInformationByHandleEx(fd, FileStandardInfo, &info, sizeof(info)));
+    DWORD const err = ok ? ERROR_SUCCESS : GetLastError();
+    tr_sys_file_close(fd, nullptr);
+
+    if (!ok)
+    {
+        set_system_error(error, err);
+        return 0;
+    }
+
+    return static_cast<uint64_t>(info.AllocationSize.QuadPart);
+}
+
+uint64_t tr_sys_path_get_filesystem_id(std::string_view const path, tr_error* error)
+{
+    auto const fd = open_file(path, 0, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, error);
+    if (fd == TR_BAD_SYS_FILE)
+    {
+        return 0;
+    }
+
+    BY_HANDLE_FILE_INFORMATION info = {};
+    bool const ok = to_bool(GetFileInformationByHandle(fd, &info));
+    DWORD const err = ok ? ERROR_SUCCESS : GetLastError();
+    tr_sys_file_close(fd, nullptr);
+
+    if (!ok)
+    {
+        set_system_error(error, err);
+        return 0;
+    }
+
+    return info.dwVolumeSerialNumber;
+}
+
 char* tr_sys_path_native_separators(char* path)
 {
     if (path == nullptr)

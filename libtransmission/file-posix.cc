@@ -432,6 +432,41 @@ bool tr_sys_path_remove(std::string_view const path, tr_error* error)
     return ret;
 }
 
+uint64_t tr_sys_path_get_size_on_disk(std::string_view const path, tr_error* error)
+{
+    auto const sz_path = tr_pathbuf{ path };
+
+    struct stat st = {};
+    if (::stat(sz_path.c_str(), &st) == -1)
+    {
+        if (error != nullptr)
+        {
+            error->set_from_errno(errno);
+        }
+        return 0;
+    }
+
+    // POSIX reports the number of allocated 512-byte blocks
+    return static_cast<uint64_t>(st.st_blocks) * 512U;
+}
+
+uint64_t tr_sys_path_get_filesystem_id(std::string_view const path, tr_error* error)
+{
+    auto const sz_path = tr_pathbuf{ path };
+
+    struct stat st = {};
+    if (::stat(sz_path.c_str(), &st) == -1)
+    {
+        if (error != nullptr)
+        {
+            error->set_from_errno(errno);
+        }
+        return 0;
+    }
+
+    return static_cast<uint64_t>(st.st_dev);
+}
+
 char* tr_sys_path_native_separators(char* path)
 {
     return path;
@@ -835,6 +870,24 @@ bool tr_sys_file_lock([[maybe_unused]] tr_sys_file_t handle, [[maybe_unused]] in
         else if (errno != EINTR)
         {
             result = false;
+        }
+    }
+
+    if (!*result && (errno == EINVAL || errno == ENOSYS))
+    {
+        int const fallback_operation = (operation & TR_SYS_FILE_LOCK_NB) != 0 ? F_SETLK : F_SETLKW;
+
+        result.reset();
+        while (!result)
+        {
+            if (fcntl(handle, fallback_operation, &fl) != -1)
+            {
+                result = true;
+            }
+            else if (errno != EINTR)
+            {
+                result = false;
+            }
         }
     }
 

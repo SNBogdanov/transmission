@@ -420,6 +420,11 @@ public:
             return wishlist_.next(n_wanted_blocks, peer_has_piece);
         }
 
+        void on_webseed_removed(tr_bitfield const& requests)
+        {
+            wishlist_.on_webseed_removed(requests);
+        }
+
         [[nodiscard]] bool client_has_block(tr_block_index_t const block) const override
         {
             return tor_.has_block(block);
@@ -747,7 +752,7 @@ public:
 
     tr_torrent* const tor;
 
-    std::vector<std::unique_ptr<tr_webseed>> webseeds;
+    std::vector<std::shared_ptr<tr_webseed>> webseeds;
 
     Peers peers;
 
@@ -767,6 +772,14 @@ private:
     void rebuild_webseeds()
     {
         auto const n = tor->webseed_count();
+
+        if (wishlist_controller != nullptr)
+        {
+            for (auto const& webseed : webseeds)
+            {
+                wishlist_controller->on_webseed_removed(webseed->active_requests);
+            }
+        }
 
         webseeds.clear();
         webseeds.reserve(n);
@@ -899,7 +912,16 @@ private:
 
         for (auto& webseed : webseeds)
         {
+            auto const strikes_before = webseed->strikes;
             maybe_add_strike(webseed.get());
+
+            if (wishlist_controller != nullptr && strikes_before < MaxBadPiecesPerPeer &&
+                webseed->strikes >= MaxBadPiecesPerPeer)
+            {
+                // A banned webseed is only stopped, not disconnected, so hand
+                // its outstanding requests back to the wishlist explicitly.
+                wishlist_controller->on_webseed_removed(webseed->active_requests);
+            }
         }
 
         tr_announcerAddBytes(tor, TR_ANN_CORRUPT, byte_count);

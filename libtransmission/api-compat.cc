@@ -59,7 +59,7 @@ struct KeyLookupTable
     }
 };
 
-auto constexpr RpcKeys = std::array<ApiKey, 212U>{ {
+auto constexpr RpcKeys = std::array<ApiKey, 215U>{ {
     { .current = TR_KEY_active_torrent_count, .legacy = TR_KEY_active_torrent_count_camel_APICOMPAT },
     { .current = TR_KEY_activity_date, .legacy = TR_KEY_activity_date_camel_APICOMPAT },
     { .current = TR_KEY_added_date, .legacy = TR_KEY_added_date_camel_APICOMPAT },
@@ -112,6 +112,7 @@ auto constexpr RpcKeys = std::array<ApiKey, 212U>{ {
     { .current = TR_KEY_files_unwanted, .legacy = TR_KEY_files_unwanted_kebab_APICOMPAT },
     { .current = TR_KEY_files_wanted, .legacy = TR_KEY_files_wanted_kebab_APICOMPAT },
     { .current = TR_KEY_flag_str, .legacy = TR_KEY_flag_str_camel_APICOMPAT },
+    { .current = TR_KEY_fork_features, .legacy = TR_KEY_fork_features_kebab_APICOMPAT },
     { .current = TR_KEY_from_cache, .legacy = TR_KEY_from_cache_camel_APICOMPAT },
     { .current = TR_KEY_from_dht, .legacy = TR_KEY_from_dht_camel_APICOMPAT },
     { .current = TR_KEY_from_incoming, .legacy = TR_KEY_from_incoming_camel_APICOMPAT },
@@ -158,6 +159,8 @@ auto constexpr RpcKeys = std::array<ApiKey, 212U>{ {
     { .current = TR_KEY_memory_bytes, .legacy = TR_KEY_memory_bytes_kebab_APICOMPAT },
     { .current = TR_KEY_memory_units, .legacy = TR_KEY_memory_units_kebab_APICOMPAT },
     { .current = TR_KEY_metadata_percent_complete, .legacy = TR_KEY_metadata_percent_complete_camel_APICOMPAT },
+    { .current = TR_KEY_min_free_space, .legacy = TR_KEY_min_free_space_kebab_APICOMPAT },
+    { .current = TR_KEY_min_free_space_resume_margin, .legacy = TR_KEY_min_free_space_resume_margin_kebab_APICOMPAT },
     { .current = TR_KEY_next_announce_time, .legacy = TR_KEY_next_announce_time_camel_APICOMPAT },
     { .current = TR_KEY_next_scrape_time, .legacy = TR_KEY_next_scrape_time_camel_APICOMPAT },
     { .current = TR_KEY_paused_torrent_count, .legacy = TR_KEY_paused_torrent_count_camel_APICOMPAT },
@@ -277,7 +280,7 @@ auto constexpr RpcKeys = std::array<ApiKey, 212U>{ {
     { .current = TR_KEY_torrent_verify, .legacy = TR_KEY_torrent_verify_kebab_APICOMPAT },
 } };
 
-auto constexpr SessionKeys = std::array<ApiKey, 139U>{ {
+auto constexpr SessionKeys = std::array<ApiKey, 141U>{ {
     { .current = TR_KEY_activity_date, .legacy = TR_KEY_activity_date_kebab_APICOMPAT },
     { .current = TR_KEY_added_date, .legacy = TR_KEY_added_date_kebab_APICOMPAT },
     { .current = TR_KEY_alt_speed_down, .legacy = TR_KEY_alt_speed_down_kebab_APICOMPAT },
@@ -330,6 +333,8 @@ auto constexpr SessionKeys = std::array<ApiKey, 139U>{ {
     { .current = TR_KEY_main_window_y, .legacy = TR_KEY_main_window_y_kebab_APICOMPAT },
     { .current = TR_KEY_max_peers, .legacy = TR_KEY_max_peers_kebab_APICOMPAT },
     { .current = TR_KEY_message_level, .legacy = TR_KEY_message_level_kebab_APICOMPAT },
+    { .current = TR_KEY_min_free_space, .legacy = TR_KEY_min_free_space_kebab_APICOMPAT },
+    { .current = TR_KEY_min_free_space_resume_margin, .legacy = TR_KEY_min_free_space_resume_margin_kebab_APICOMPAT },
     { .current = TR_KEY_open_dialog_dir, .legacy = TR_KEY_open_dialog_dir_kebab_APICOMPAT },
     { .current = TR_KEY_peer_congestion_algorithm, .legacy = TR_KEY_peer_congestion_algorithm_kebab_APICOMPAT },
     { .current = TR_KEY_peer_limit_global, .legacy = TR_KEY_peer_limit_global_kebab_APICOMPAT },

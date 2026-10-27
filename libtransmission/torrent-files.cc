@@ -190,7 +190,8 @@ bool tr_torrent_files::move(
     std::string_view old_parent_in,
     std::string_view parent_in,
     std::string_view parent_name,
-    tr_error* error) const
+    tr_error* error,
+    bool move_partial_files) const
 {
     auto const old_parent = tr_pathbuf{ old_parent_in };
     auto const parent = tr_pathbuf{ parent_in };
@@ -214,6 +215,14 @@ bool tr_torrent_files::move(
     {
         auto const found = find(i, std::data(paths), std::size(paths));
         if (!found)
+        {
+            continue;
+        }
+
+        /* Keep .part files in the source directory when partial-file moves
+         * are disabled: they are still needed for seeding and copying them
+         * to a different filesystem allocates the full file size there. */
+        if (!move_partial_files && tr_strv_ends_with(found->filename().sv(), PartialFileSuffix))
         {
             continue;
         }

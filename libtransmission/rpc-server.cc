@@ -372,6 +372,16 @@ void handle_web_client(struct evhttp_request* req, tr_rpc_server const* server)
 
 void handle_rpc_from_json(struct evhttp_request* req, tr_rpc_server* server, std::string_view json)
 {
+    auto client_features = tr_rpc_client_features{};
+    if (auto const* const input_headers = evhttp_request_get_input_headers(req); input_headers != nullptr)
+    {
+        if (auto const* const features = evhttp_find_header(input_headers, std::data(TrRpcClientFeaturesHeader));
+            features != nullptr)
+        {
+            client_features.status_v2 = std::string_view{ features }.find(TrRpcClientFeatureStatusV2) != std::string_view::npos;
+        }
+    }
+
     tr_rpc_request_exec(
         server->session,
         json,
@@ -389,7 +399,8 @@ void handle_rpc_from_json(struct evhttp_request* req, tr_rpc_server* server, std
             evhttp_add_header(output_headers, "Content-Type", "application/json; charset=UTF-8");
             evhttp_send_reply(req, HTTP_OK, "OK", response);
             evbuffer_free(response);
-        });
+        },
+        client_features);
 }
 
 void handle_rpc(struct evhttp_request* req, tr_rpc_server* server)
@@ -709,12 +720,12 @@ bool bindUnixSocket(
         return false;
     }
 
-    if (chmod(addr.sun_path, socket_mode) != 0)
+    if (chmod(addr.sun_path, static_cast<mode_t>(socket_mode)) != 0)
     {
         tr_logAddWarn(
             fmt::format(
                 fmt::runtime(_("Couldn't set RPC socket mode to {mode:#o}, defaulting to 0755")),
-                fmt::arg("mode", socket_mode)));
+                fmt::arg("mode", static_cast<uint16_t>(socket_mode))));
     }
 
     return evhttp_bind_listener(httpd, lev) != nullptr;

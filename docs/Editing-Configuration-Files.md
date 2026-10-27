@@ -70,7 +70,7 @@ Here is a sample of the three basic types: respectively Boolean, Number and Stri
 #### [Files and Locations](./Configuration-Files.md)
 
  * **download_dir:** String (default = [default locations](Configuration-Files.md#Locations))
- * **incomplete_dir:** String (default = [default locations](Configuration-Files.md#Locations)) Directory to keep files in until torrent is complete.
+ * **incomplete_dir:** String (default = [default locations](Configuration-Files.md#Locations)) Directory to keep files in until torrent is complete. This is the session default; per-torrent overrides can be set via the RPC `incomplete_dir` field (fork extension), or with `torrent_set_incomplete_dir` when existing data should be moved.
  * **incomplete_dir_enabled:** Boolean (default = false) When enabled, new torrents will download the files to `incomplete_dir`. When complete, the files will be moved to `download_dir`.
  * **preallocation:** Number (0 = Off, 1 = Fast, 2 = Full (slower but reduces disk fragmentation), default = 1)
  * **rename_partial_files:** Boolean (default = true) Postfix partially downloaded files with ".part".
@@ -99,11 +99,11 @@ Here is a sample of the three basic types: respectively Boolean, Number and Stri
  * **proxy_url:** String? (default = null) Proxy for HTTP(S) requests (for example, requests to tracker). Format `[scheme]://[host]:[port]`, where `scheme` is one of: `http`, `https`, `socks4`, `socks4h`, `socks5`, `socks5h`. If null, Transmission respects the CURL environment variables. If empty string, no proxy is used. For more information see [curl proxy documentation](https://curl.se/libcurl/c/CURLOPT_PROXY.html)
  * **scrape_paused_torrents_enabled:** Boolean (default = true)
  * **script_torrent_added_enabled:** Boolean (default = false) Run a script when a torrent is added to Transmission. Environmental variables are passed in as detailed on the [Scripts](./Scripts.md) page.
- * **script_torrent_added_filename:** String (default = "") Path to script.
+ * **script_torrent_added_filename:** String (default = "") Path to script, optionally followed by arguments.
  * **script_torrent_done_enabled:** Boolean (default = false) Run a script when a torrent is done downloading. Environmental variables are passed in as detailed on the [Scripts](./Scripts.md) page.
- * **script_torrent_done_filename:** String (default = "") Path to script.
+ * **script_torrent_done_filename:** String (default = "") Path to script, optionally followed by arguments.
  * **script_torrent_done_seeding_enabled:** Boolean (default = false) Run a script when a torrent is done seeding. Environmental variables are passed in as detailed on the [Scripts](./Scripts.md) page.
- * **script_torrent_done_seeding_filename:** String (default = "") Path to script.
+ * **script_torrent_done_seeding_filename:** String (default = "") Path to script, optionally followed by arguments.
  * **start_paused**: Boolean (default = false) Pause the torrents when daemon starts. _Note: transmission-daemon only._
  * **tcp_enabled:** Boolean (default = true) **DEPRECATED**, use `preferred_transports` instead. Leave it at default and let Transmission manage this value to minimize accidents.
  * **torrent_added_verify_mode:** String ("fast", "full", default: "fast") Whether newly-added torrents' local data should be fully verified when added, or wait and verify them on-demand later. See [#2626](https://github.com/transmission/transmission/pull/2626) for more discussion.

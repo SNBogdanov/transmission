@@ -11,6 +11,7 @@
 
 #include <cstddef> // for size_t
 #include <cstdint> // for uintX_t
+#include <mutex>
 #include <optional>
 #include <string_view>
 #include <utility>
@@ -68,4 +69,5 @@ private:
 
     static constexpr size_t MaxOpenFiles = 32U;
     tr_lru_cache<Key, Val, MaxOpenFiles> pool_;
+    mutable std::mutex mutex_;
 };

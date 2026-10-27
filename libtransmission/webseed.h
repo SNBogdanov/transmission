@@ -25,7 +25,7 @@ protected:
     }
 
 public:
-    [[nodiscard]] static std::unique_ptr<tr_webseed> create(
+    [[nodiscard]] static std::shared_ptr<tr_webseed> create(
         tr_torrent& torrent,
         std::string_view url,
         tr_peer_callback_webseed callback,

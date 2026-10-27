@@ -30,6 +30,8 @@
 #include "libtransmission/announcer-common.h"
 #include "libtransmission/announcer.h"
 #include "libtransmission/crypto-utils.h" /* tr_rand_int() */
+#include "libtransmission/file-utils.h"
+#include "libtransmission/file.h"
 #include "libtransmission/interned-string.h" // tr_interned_string
 #include "libtransmission/log.h"
 #include "libtransmission/session.h"
@@ -37,6 +39,7 @@
 #include "libtransmission/timer.h"
 #include "libtransmission/torrent.h"
 #include "libtransmission/tr-assert.h"
+#include "libtransmission/tr-strbuf.h"
 #include "libtransmission/types.h" // tr_sha1_digest_t
 #include "libtransmission/utils.h"
 #include "libtransmission/web-utils.h"
@@ -125,6 +128,9 @@ public:
         , announcer_udp_{ announcer_udp }
         , upkeep_timer_{ session_in->timerMaker().create() }
     {
+        blocked_trackers_path_ = tr_pathbuf{ session_in->configDir(), "/blocked-trackers.txt" }.c_str();
+        reloadBlockedTrackersIfChanged();
+
         upkeep_timer_->set_callback([this]() { this->upkeep(); });
         upkeep_timer_->start_repeating(UpkeepInterval);
     }
@@ -209,6 +215,69 @@ public:
         }
     }
 
+    // Trackers listed in <config-dir>/blocked-trackers.txt are never announced
+    // to or scraped. The file holds one case-insensitive host or host suffix
+    // per line; blank lines and lines starting with '#' are ignored.
+    void reloadBlockedTrackersIfChanged()
+    {
+        auto const info = tr_sys_path_get_info(blocked_trackers_path_);
+        if (!info || !info->isFile())
+        {
+            blocked_tracker_hosts_.clear();
+            blocked_trackers_mtime_ = -1;
+            return;
+        }
+
+        if (info->last_modified_at == blocked_trackers_mtime_)
+        {
+            return;
+        }
+        blocked_trackers_mtime_ = info->last_modified_at;
+
+        blocked_tracker_hosts_.clear();
+
+        auto contents = std::vector<char>{};
+        if (!tr_file_read(blocked_trackers_path_, contents))
+        {
+            return;
+        }
+
+        auto sv = std::string_view{ std::data(contents), std::size(contents) };
+        while (!std::empty(sv))
+        {
+            auto const line = tr_strv_strip(tr_strv_sep(&sv, '\n'));
+            if (!std::empty(line) && !tr_strv_starts_with(line, '#'))
+            {
+                blocked_tracker_hosts_.emplace_back(tr_strlower(line));
+            }
+        }
+    }
+
+    [[nodiscard]] bool isTrackerBlocked(std::string_view host) const
+    {
+        if (std::empty(host))
+        {
+            return false;
+        }
+
+        auto const host_lower = tr_strlower(host);
+        for (auto const& blocked : blocked_tracker_hosts_)
+        {
+            if (host_lower == blocked)
+            {
+                return true;
+            }
+
+            if (host_lower.size() > blocked.size() && tr_strv_ends_with(host_lower, blocked) &&
+                host_lower[host_lower.size() - blocked.size() - 1] == '.')
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     tr_session* const session;
 
 private:
@@ -231,6 +300,10 @@ private:
     std::unique_ptr<tr::Timer> const upkeep_timer_;
 
     std::set<tr_announce_request, StopsCompare> stops_;
+
+    std::string blocked_trackers_path_;
+    time_t blocked_trackers_mtime_ = -1;
+    std::vector<std::string> blocked_tracker_hosts_;
 
     bool is_shutting_down_ = false;
 };
@@ -572,7 +645,7 @@ struct tr_torrent_announcer
     {
         // build the trackers
         auto tier_to_infos = std::map<tr_tracker_tier_t, std::vector<tr_announce_list::tracker_info const*>>{};
-        auto const announce_list = getAnnounceList(tor);
+        auto const announce_list = getAnnounceList(announcer, tor);
         for (auto const& info : announce_list)
         {
             tier_to_infos[info.tier].emplace_back(&info);
@@ -643,7 +716,7 @@ struct tr_torrent_announcer
     tr_tracker_callback callback;
 
 private:
-    [[nodiscard]] static tr_announce_list getAnnounceList(tr_torrent const* tor)
+    [[nodiscard]] static tr_announce_list getAnnounceList(tr_announcer_impl* announcer, tr_torrent const* tor)
     {
         auto announce_list = tor->announce_list();
 
@@ -651,6 +724,22 @@ private:
         if (tor->is_public())
         {
             announce_list.add(tor->session->defaultTrackers());
+        }
+
+        // drop trackers listed in the blocked-trackers file
+        announcer->reloadBlockedTrackersIfChanged();
+        auto blocked_urls = std::vector<std::string_view>{};
+        for (auto const& info : announce_list)
+        {
+            if (announcer->isTrackerBlocked(info.announce_parsed.host))
+            {
+                tr_logAddInfo(fmt::format("Blocked tracker '{}' for torrent '{}'", info.announce.sv(), tor->name()));
+                blocked_urls.emplace_back(info.announce.sv());
+            }
+        }
+        for (auto const url : blocked_urls)
+        {
+            announce_list.remove(url);
         }
 
         return announce_list;

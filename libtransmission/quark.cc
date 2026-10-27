@@ -199,6 +199,9 @@ auto constexpr MyStatic = std::array<std::string_view, TR_N_KEYS>{
     "flagStr"sv, // rpc
     "flag_str"sv, // rpc
     "flags"sv, // .resume
+    "force_finish_partial_files_enabled"sv, // rpc, tr_session::Settings
+    "fork-features"sv, // rpc
+    "fork_features"sv, // rpc
     "format"sv, // rpc
     "free-space"sv, // rpc
     "free_space"sv, // rpc
@@ -343,7 +346,13 @@ auto constexpr MyStatic = std::array<std::string_view, TR_N_KEYS>{
     "metadata_size"sv, // BEP0009; BT protocol
     "metainfo"sv, // rpc
     "method"sv, // json-rpc
+    "min-free-space"sv, // rpc, tr_session::Settings
+    "min-free-space-resume-margin"sv, // rpc, tr_session::Settings
+    "min_free_space"sv, // rpc, tr_session::Settings
+    "min_free_space_resume_margin"sv, // rpc, tr_session::Settings
     "move"sv, // rpc
+    "move_completed_torrents_enabled"sv, // rpc, tr_session::Settings
+    "move_partial_files_enabled"sv, // rpc, tr_session::Settings
     "msg_type"sv, // BT protocol
     "mtimes"sv, // .resume
     "name"sv, // .resume, .torrent, rpc
@@ -533,6 +542,9 @@ auto constexpr MyStatic = std::array<std::string_view, TR_N_KEYS>{
     "script_torrent_added_filename"sv, // rpc, tr_session::Settings
     "script_torrent_done_enabled"sv, // rpc, tr_session::Settings
     "script_torrent_done_filename"sv, // rpc, tr_session::Settings
+    "script_torrent_done_remove_all_files_enabled"sv, // rpc, tr_session::Settings
+    "script_torrent_done_remove_temp_files_enabled"sv, // rpc, tr_session::Settings
+    "script_torrent_done_remove_torrent_enabled"sv, // rpc, tr_session::Settings
     "script_torrent_done_seeding_enabled"sv, // rpc, tr_session::Settings
     "script_torrent_done_seeding_filename"sv, // rpc, tr_session::Settings
     "seconds-active"sv, // stats.json
@@ -662,6 +674,7 @@ auto constexpr MyStatic = std::array<std::string_view, TR_N_KEYS>{
     "torrent_added"sv, // rpc
     "torrent_added_notification_enabled"sv, // gtk app, qt app
     "torrent_added_verify_mode"sv, // tr_session::Settings
+    "torrent_archive"sv, // rpc
     "torrent_complete_notification_enabled"sv, // gtk app, qt app
     "torrent_complete_sound_command"sv, // gtk app, qt app
     "torrent_complete_sound_enabled"sv, // gtk app, qt app
@@ -674,6 +687,7 @@ auto constexpr MyStatic = std::array<std::string_view, TR_N_KEYS>{
     "torrent_remove"sv, // rpc
     "torrent_rename_path"sv, // rpc
     "torrent_set"sv, // rpc
+    "torrent_set_incomplete_dir"sv, // rpc
     "torrent_set_location"sv, // rpc
     "torrent_start"sv, // rpc
     "torrent_start_now"sv, // rpc

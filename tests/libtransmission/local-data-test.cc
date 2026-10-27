@@ -4,8 +4,12 @@
 // License text can be found in the licenses/ folder.
 
 #include <algorithm>
+#include <atomic>
+#include <cerrno>
+#include <chrono>
 #include <optional>
 #include <string_view>
+#include <thread>
 #include <utility>
 
 #include <gtest/gtest.h>
@@ -18,6 +22,25 @@ using namespace std::literals;
 
 namespace
 {
+
+// LocalData calls back on its own worker threads, so callers can't assume
+// the callback has run by the time the call returns. Poll a flag instead.
+template<typename Predicate>
+[[nodiscard]] bool wait_for(Predicate predicate)
+{
+    auto const deadline = std::chrono::steady_clock::now() + 10s;
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        if (predicate())
+        {
+            return true;
+        }
+
+        std::this_thread::sleep_for(1ms);
+    }
+
+    return predicate();
+}
 
 class StubBackend final : public tr::LocalData::Backend
 {
@@ -47,6 +70,11 @@ public:
         tr_byte_span_t byte_span,
         tr::LocalData::BlockData const& data) override
     {
+        while (write_block && !allow_write)
+        {
+            std::this_thread::sleep_for(1ms);
+        }
+
         write_span = byte_span;
         last_write.assign(std::begin(data), std::end(data));
         return write_err;
@@ -103,8 +131,10 @@ public:
     tr_error_code_t write_err = 0;
     tr_error_code_t move_err = 0;
     tr_error_code_t remove_err = 0;
-    bool remove_called = false;
-    bool close_all_called = false;
+    std::atomic<bool> write_block = false;
+    std::atomic<bool> allow_write = true;
+    std::atomic<bool> remove_called = false;
+    std::atomic<bool> close_all_called = false;
     tr_byte_span_t read_span{};
     tr_byte_span_t write_span{};
     tr_piece_index_t tested_piece = 0;
@@ -115,60 +145,60 @@ public:
     std::string moved_name;
     std::string renamed_from;
     std::string renamed_to;
-    tr_torrent_id_t closed_torrent = -1;
-    std::optional<std::pair<tr_torrent_id_t, tr_file_index_t>> closed_file;
+    std::atomic<tr_torrent_id_t> closed_torrent = -1;
+    std::atomic<std::optional<std::pair<tr_torrent_id_t, tr_file_index_t>>> closed_file;
 };
 
 } // namespace
 
-TEST(LocalData, ReadRunsInline)
+TEST(LocalData, Read)
 {
     auto backend = std::make_unique<StubBackend>();
     auto* raw_backend = backend.get();
     auto local_data = tr::LocalData{ std::move(backend) };
 
-    auto called = false;
+    auto done = std::atomic<bool>{ false };
     local_data.read(
         7,
         { .begin = 10U, .end = 13U },
-        [&called, raw_backend](tr_torrent_id_t tor_id, tr_byte_span_t byte_span, tr_error const& error, auto data)
+        [&done, raw_backend](tr_torrent_id_t tor_id, tr_byte_span_t byte_span, tr_error const& error, auto data)
         {
-            called = true;
             EXPECT_EQ(7, tor_id);
             EXPECT_EQ(raw_backend->read_span.begin, byte_span.begin);
             EXPECT_EQ(raw_backend->read_span.end, byte_span.end);
             EXPECT_FALSE(error);
             ASSERT_NE(nullptr, data);
             EXPECT_EQ((std::vector<uint8_t>{ 1U, 2U, 3U }), std::vector<uint8_t>(std::begin(*data), std::end(*data)));
+            done = true;
         });
 
-    EXPECT_TRUE(called);
+    EXPECT_TRUE(wait_for([&done]() { return done.load(); }));
 }
 
-TEST(LocalData, TestPieceRunsInline)
+TEST(LocalData, TestPiece)
 {
     auto backend = std::make_unique<StubBackend>();
     auto* raw_backend = backend.get();
     auto local_data = tr::LocalData{ std::move(backend) };
 
-    auto called = false;
+    auto done = std::atomic<bool>{ false };
     local_data.test_piece(
         9,
         3,
-        [&called, raw_backend](tr_torrent_id_t tor_id, tr_piece_index_t piece, tr_error const& error, auto hash)
+        [&done, raw_backend](tr_torrent_id_t tor_id, tr_piece_index_t piece, tr_error const& error, auto hash)
         {
-            called = true;
             EXPECT_EQ(9, tor_id);
             EXPECT_EQ(raw_backend->tested_piece, piece);
             EXPECT_FALSE(error);
             ASSERT_TRUE(hash.has_value());
             EXPECT_EQ(raw_backend->hash, *hash);
+            done = true;
         });
 
-    EXPECT_TRUE(called);
+    EXPECT_TRUE(wait_for([&done]() { return done.load(); }));
 }
 
-TEST(LocalData, WriteRunsInline)
+TEST(LocalData, Write)
 {
     auto backend = std::make_unique<StubBackend>();
     auto* raw_backend = backend.get();
@@ -177,22 +207,71 @@ TEST(LocalData, WriteRunsInline)
     auto data = std::make_unique<tr::LocalData::BlockData>();
     data->assign({ uint8_t{ 4U }, uint8_t{ 5U }, uint8_t{ 6U } });
 
-    auto called = false;
+    auto done = std::atomic<bool>{ false };
     local_data.write(
         11,
         { .begin = 20U, .end = 23U },
         std::move(data),
-        [&called, raw_backend](tr_torrent_id_t tor_id, tr_byte_span_t byte_span, tr_error const& error)
+        [&done, raw_backend](tr_torrent_id_t tor_id, tr_byte_span_t byte_span, tr_error const& error)
         {
-            called = true;
             EXPECT_EQ(11, tor_id);
             EXPECT_EQ(raw_backend->write_span.begin, byte_span.begin);
             EXPECT_EQ(raw_backend->write_span.end, byte_span.end);
             EXPECT_FALSE(error);
             EXPECT_EQ((std::vector<uint8_t>{ 4U, 5U, 6U }), raw_backend->last_write);
+            done = true;
         });
 
-    EXPECT_TRUE(called);
+    EXPECT_TRUE(wait_for([&done]() { return done.load(); }));
+    EXPECT_EQ(0U, local_data.enqueued_write_bytes());
+}
+
+TEST(LocalData, WriteQueueLimitPerTorrent)
+{
+    auto backend = std::make_unique<StubBackend>();
+    auto* raw_backend = backend.get();
+    raw_backend->write_block = true;
+    raw_backend->allow_write = false;
+
+    auto local_data = tr::LocalData{ std::move(backend), 1 };
+
+    auto constexpr BlockSize = size_t{ TrBlockSize };
+    auto const n_blocks = tr::LocalData::MaxPendingWriteBytesPerTorrent / BlockSize;
+    auto write_count = std::atomic<size_t>{};
+
+    for (size_t i = 0; i < n_blocks; ++i)
+    {
+        auto data = std::make_unique<tr::LocalData::BlockData>();
+        data->resize(BlockSize);
+        local_data.write(
+            1,
+            { .begin = i * BlockSize, .end = (i + 1) * BlockSize },
+            std::move(data),
+            [&write_count](tr_torrent_id_t, tr_byte_span_t, tr_error const& error)
+            {
+                EXPECT_FALSE(error);
+                ++write_count;
+            });
+    }
+
+    auto rejected = std::atomic<bool>{ false };
+    auto data = std::make_unique<tr::LocalData::BlockData>();
+    data->resize(BlockSize);
+    local_data.write(
+        1,
+        { .begin = n_blocks * BlockSize, .end = (n_blocks + 1) * BlockSize },
+        std::move(data),
+        [&rejected](tr_torrent_id_t, tr_byte_span_t, tr_error const& error)
+        {
+            EXPECT_EQ(EAGAIN, error.code());
+            rejected = true;
+        });
+
+    EXPECT_TRUE(rejected.load());
+
+    raw_backend->allow_write = true;
+    EXPECT_TRUE(wait_for([&write_count, n_blocks]() { return write_count.load() == n_blocks; }));
+    EXPECT_EQ(0U, local_data.pending_write_bytes(1));
     EXPECT_EQ(0U, local_data.enqueued_write_bytes());
 }
 
@@ -202,7 +281,7 @@ TEST(LocalData, AdminOperationsDelegate)
     auto* raw_backend = backend.get();
     auto local_data = tr::LocalData{ std::move(backend) };
 
-    auto move_called = false;
+    auto move_called = std::atomic<bool>{ false };
     local_data.move(
         5,
         "/old",
@@ -210,43 +289,47 @@ TEST(LocalData, AdminOperationsDelegate)
         "name",
         [&move_called](tr_torrent_id_t tor_id, tr_error const& error)
         {
-            move_called = true;
             EXPECT_EQ(5, tor_id);
             EXPECT_FALSE(error);
+            move_called = true;
         });
-    EXPECT_TRUE(move_called);
+    EXPECT_TRUE(wait_for([&move_called]() { return move_called.load(); }));
     EXPECT_EQ("/old", raw_backend->moved_from);
     EXPECT_EQ("/new", raw_backend->moved_to);
     EXPECT_EQ("name", raw_backend->moved_name);
 
-    auto rename_called = false;
+    auto rename_called = std::atomic<bool>{ false };
     local_data.rename(
         8,
         "old",
         "new",
         [&rename_called](tr_torrent_id_t tor_id, std::string_view oldpath, std::string_view newname, tr_error const& error)
         {
-            rename_called = true;
             EXPECT_EQ(8, tor_id);
             EXPECT_EQ("old", oldpath);
             EXPECT_EQ("new", newname);
             EXPECT_FALSE(error);
+            rename_called = true;
         });
-    EXPECT_TRUE(rename_called);
+    EXPECT_TRUE(wait_for([&rename_called]() { return rename_called.load(); }));
 
     local_data.remove(12, {});
-    EXPECT_TRUE(raw_backend->remove_called);
+    EXPECT_TRUE(wait_for([raw_backend]() { return raw_backend->remove_called.load(); }));
 
     local_data.close_file(13, 2);
-    ASSERT_TRUE(raw_backend->closed_file.has_value());
-    EXPECT_EQ(13, raw_backend->closed_file->first);
-    EXPECT_EQ(2, raw_backend->closed_file->second);
+    EXPECT_TRUE(wait_for(
+        [raw_backend]()
+        {
+            auto const& closed = raw_backend->closed_file;
+            auto const opt = std::atomic_load(&closed);
+            return opt.has_value() && opt->first == 13 && opt->second == 2;
+        }));
 
     local_data.close_torrent(14);
-    EXPECT_EQ(14, raw_backend->closed_torrent);
+    EXPECT_TRUE(wait_for([raw_backend]() { return raw_backend->closed_torrent.load() == 14; }));
 
     local_data.close_all();
-    EXPECT_TRUE(raw_backend->close_all_called);
+    EXPECT_TRUE(raw_backend->close_all_called.load());
 
     local_data.shutdown();
 }

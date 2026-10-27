@@ -28,10 +28,23 @@ class tr_torrents;
 namespace tr
 {
 
+/**
+ * Interface class for async handling of local data files.
+ *
+ * Requests for multiple torrents can be handled in parallel.
+ *
+ * Requests for the same torrent are handled in the order they
+ * are received, one request at a time.
+ */
 class LocalData
 {
 public:
     using BlockData = small::max_size_vector<uint8_t, TrBlockSize>;
+
+    // Cap on queued + active write bytes for a single torrent. When this
+    // is reached, new writes are rejected with EAGAIN and peers stop
+    // requesting more blocks until the queue drains.
+    static constexpr uint64_t MaxPendingWriteBytesPerTorrent = 64U * 1024U * 1024U;
 
     using OnRead = std::function<
         void(tr_torrent_id_t, tr_byte_span_t byte_span, tr_error const& error, std::unique_ptr<BlockData> data)>;
@@ -97,11 +110,19 @@ public:
         OnMove on_move);
     void remove(tr_torrent_id_t id, tr_torrent_remove_func remove_func);
     void rename(tr_torrent_id_t id, std::string_view oldpath, std::string_view newname, tr_torrent_rename_done_func callback);
+
+    // Stops accepting new work. Blocks until all pending mutating operations finish.
     void shutdown();
-    [[nodiscard]] static uint64_t enqueued_write_bytes();
+
+    // Number of bytes pending to be written to disk
+    [[nodiscard]] uint64_t enqueued_write_bytes() const;
+
+    // Number of bytes pending to be written to disk for a single torrent
+    [[nodiscard]] uint64_t pending_write_bytes(tr_torrent_id_t id) const;
 
 private:
-    std::unique_ptr<Backend> backend_;
+    class Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 } // namespace tr

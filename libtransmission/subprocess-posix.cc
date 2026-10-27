@@ -5,11 +5,11 @@
 
 #include <array>
 #include <cerrno>
-#include <csignal>
 #include <cstdlib>
 #include <map>
 #include <string>
 #include <string_view>
+#include <thread>
 
 #include <fcntl.h>
 #include <sys/wait.h>
@@ -27,22 +27,6 @@ using namespace std::literals;
 
 namespace
 {
-void handle_sigchld(int /*i*/)
-{
-    for (;;)
-    {
-        // FIXME: only check for our own PIDs
-        auto const res = waitpid(-1, nullptr, WNOHANG);
-
-        if ((res == 0) || (res == -1 && errno != EINTR))
-        {
-            break;
-        }
-    }
-
-    // FIXME: Call old handler, if any
-}
-
 void set_system_error(tr_error* error, int code, std::string_view what)
 {
     if (error != nullptr)
@@ -116,22 +100,9 @@ bool tr_spawn_async(
     char const* const* cmd,
     std::map<std::string_view, std::string_view> const& env,
     std::string_view work_dir,
-    tr_error* error)
+    tr_error* error,
+    tr_spawn_callback on_exit)
 {
-    static bool sigchld_handler_set = false;
-
-    if (!sigchld_handler_set)
-    {
-        /* FIXME: "The effects of signal() in a multithreaded process are unspecified." © man 2 signal */
-        if (signal(SIGCHLD, &handle_sigchld) == SIG_ERR) // NOLINT(performance-no-int-to-ptr)
-        {
-            set_system_error(error, errno, "Call to signal()");
-            return false;
-        }
-
-        sigchld_handler_set = true;
-    }
-
     auto pipe_fds = std::array<int, 2>{};
 
     if (pipe(std::data(pipe_fds)) == -1)
@@ -170,6 +141,18 @@ bool tr_spawn_async(
     }
 
     close(pipe_fds[1]);
+
+    auto reaper = std::thread(
+        [child_pid, on_exit = std::move(on_exit)]() mutable
+        {
+            auto status = int{};
+
+            if (waitpid(child_pid, &status, 0) == child_pid && on_exit)
+            {
+                on_exit(WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+            }
+        });
+    reaper.detach();
 
     return tr_spawn_async_in_parent(pipe_fds[0], error);
 }

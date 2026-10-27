@@ -920,6 +920,12 @@ void warn_if_unsupported_rpc_version(std::string_view const semver)
     case TR_STATUS_SEED_WAIT:
         return "Queued"s;
 
+    case TR_STATUS_SPACE_PAUSED:
+        return "Waiting for space"s;
+
+    case TR_STATUS_PENDING_MOVE:
+        return "Pending move"s;
+
     case TR_STATUS_STOPPED:
         if (t.value_if<bool>(TR_KEY_is_finished).value_or(false))
         {
@@ -2408,14 +2414,17 @@ CURL* tr_curl_easy_init(std::string* writebuf, RemoteConfig& config)
         (void)curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
     }
 
+    auto* custom_headers = curl_slist_append(
+        nullptr,
+        fmt::format("{:s}: {:s}", TrRpcClientFeaturesHeader, TrRpcClientFeatureStatusV2).c_str());
     if (auto const& str = config.session_id; !std::empty(str))
     {
         auto const h = fmt::format("{:s}: {:s}", TrRpcSessionIdHeader, str);
-        auto* const custom_headers = curl_slist_append(nullptr, h.c_str());
-
-        (void)curl_easy_setopt(curl, CURLOPT_HTTPHEADER, custom_headers);
-        (void)curl_easy_setopt(curl, CURLOPT_PRIVATE, custom_headers);
+        custom_headers = curl_slist_append(custom_headers, h.c_str());
     }
+
+    (void)curl_easy_setopt(curl, CURLOPT_HTTPHEADER, custom_headers);
+    (void)curl_easy_setopt(curl, CURLOPT_PRIVATE, custom_headers);
 
     return curl;
 }

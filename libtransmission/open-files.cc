@@ -125,6 +125,8 @@ bool preallocate_file_full(tr_sys_file_t fd, uint64_t length, tr_error* error)
 
 std::optional<tr_sys_file_t> tr_open_files::get(tr_torrent_id_t tor_id, tr_file_index_t file_num, bool writable)
 {
+    auto const lock = std::lock_guard(mutex_);
+
     if (auto* const found = pool_.get(make_key(tor_id, file_num)); found != nullptr)
     {
         if (writable && !found->writable_)
@@ -146,6 +148,8 @@ std::optional<tr_sys_file_t> tr_open_files::get(
     tr_file_preallocation allocation,
     uint64_t file_size)
 {
+    auto const lock = std::lock_guard(mutex_);
+
     // is there already an entry
     auto key = make_key(tor_id, file_num);
     if (auto* const found = pool_.get(key); found != nullptr)
@@ -256,16 +260,19 @@ std::optional<tr_sys_file_t> tr_open_files::get(
 
 void tr_open_files::close_all()
 {
+    auto const lock = std::lock_guard(mutex_);
     pool_.clear();
 }
 
 void tr_open_files::close_torrent(tr_torrent_id_t tor_id)
 {
+    auto const lock = std::lock_guard(mutex_);
     pool_.erase_if([&tor_id](Key const& key, Val const& /*unused*/) { return key.first == tor_id; });
 }
 
 void tr_open_files::close_file(tr_torrent_id_t tor_id, tr_file_index_t file_num)
 {
+    auto const lock = std::lock_guard(mutex_);
     pool_.erase(make_key(tor_id, file_num));
 }
 

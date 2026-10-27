@@ -47,6 +47,7 @@
 #include "libtransmission/port-forwarding.h"
 #include "libtransmission/quark.h"
 #include "libtransmission/rpc-server.h"
+#include "libtransmission/rpcimpl.h"
 #include "libtransmission/session-alt-speeds.h"
 #include "libtransmission/session.h"
 #include "libtransmission/string-utils.h"
@@ -356,7 +357,13 @@ size_t tr_session::WebMediator::clamp(int torrent_id, size_t byte_count) const
 
 std::optional<std::string> tr_session::WebMediator::proxyUrl() const
 {
-    return session_->settings().proxy_url;
+    auto const& proxy_url = session_->settings().proxy_url;
+    if (!proxy_url || std::empty(*proxy_url))
+    {
+        return std::nullopt;
+    }
+
+    return proxy_url;
 }
 
 void tr_session::WebMediator::run(tr_web::FetchDoneFunc&& func, tr_web::FetchResponse&& response) const
@@ -540,6 +547,13 @@ void tr_sessionSaveSettings(tr_session* session, std::string_view const config_d
 
     auto const filename = tr_pathbuf{ config_dir, "/settings.json"sv };
 
+    auto file_settings = tr_variant::make_map();
+    if (auto parsed = tr_variant_serde::json().parse_file(filename); parsed)
+    {
+        tr::api_compat::convert_incoming_data(*parsed);
+        file_settings = std::move(*parsed);
+    }
+
     // from highest to lowest precedence:
     // - actual values
     // - client settings
@@ -547,12 +561,22 @@ void tr_sessionSaveSettings(tr_session* session, std::string_view const config_d
     // - built-in defaults
     auto settings = tr_sessionGetSettings(session);
     settings.merge(client_settings);
-    if (auto file_settings = tr_variant_serde::json().parse_file(filename); file_settings)
-    {
-        tr::api_compat::convert_incoming_data(*file_settings);
-        settings.merge(*file_settings);
-    }
+    settings.merge(file_settings);
     settings.merge(tr_sessionGetDefaultSettings());
+
+    if (auto* const settings_map = settings.get_if<tr_variant::Map>(); settings_map != nullptr)
+    {
+        if (auto const* const file_map = file_settings.get_if<tr_variant::Map>(); file_map != nullptr)
+        {
+            for (auto const& [key, value] : *file_map)
+            {
+                if (!tr_rpcIsSessionKeySettable(key))
+                {
+                    settings_map->insert_or_assign(key, value.clone());
+                }
+            }
+        }
+    }
 
     // save 'em
     tr::api_compat::convert_outgoing_data(settings);
@@ -625,6 +649,8 @@ void tr_session::on_now_timer()
     // tr_session upkeep tasks to perform once per second
     tr_timeUpdate(std::chrono::system_clock::to_time_t(now));
     alt_speeds_.check_scheduler();
+    updateFreeSpaceLimits();
+    processDoneActionQueue();
 
     // set the timer to kick again right after (10ms after) the next second
     auto const target_time = std::chrono::time_point_cast<std::chrono::seconds>(now) + 1s + 10ms;
@@ -634,6 +660,578 @@ void tr_session::on_now_timer()
         target_interval += 1s;
     }
     now_timer_->set_interval(std::chrono::duration_cast<std::chrono::milliseconds>(target_interval));
+}
+
+namespace
+{
+[[nodiscard]] std::string strip_trailing_separators(std::string path)
+{
+    while (std::size(path) > 1 && (path.back() == '/' || path.back() == '\\'))
+    {
+        path.pop_back();
+    }
+
+    return path;
+}
+
+[[nodiscard]] std::string parent_path_of(std::string path)
+{
+    path = strip_trailing_separators(std::move(path));
+
+    auto const pos = path.find_last_of("/\\");
+    if (pos == std::string::npos)
+    {
+        return {};
+    }
+
+    if (pos == 0)
+    {
+        return path.substr(0, 1);
+    }
+
+    return path.substr(0, pos);
+}
+
+[[nodiscard]] std::string nearest_existing_ancestor(std::string_view const path_in)
+{
+    auto path = std::string{ path_in };
+    if (std::empty(path))
+    {
+        path = ".";
+    }
+
+    for (;;)
+    {
+        if (tr_sys_path_exists(path))
+        {
+            return path;
+        }
+
+        auto const parent = parent_path_of(path);
+        if (std::empty(parent) || parent == path)
+        {
+            return path;
+        }
+
+        path = parent;
+    }
+}
+
+[[nodiscard]] std::optional<tr_sys_path_capacity> capacity_for(std::string_view const dir)
+{
+    return tr_sys_path_get_capacity(nearest_existing_ancestor(dir));
+}
+
+[[nodiscard]] uint64_t filesystem_id_for(std::string_view const dir)
+{
+    return tr_sys_path_get_filesystem_id(nearest_existing_ancestor(dir));
+}
+} // namespace
+
+void tr_session::reloadMinFreeSpace()
+{
+    auto rules = tr_min_free_space_parse(settings_.min_free_space);
+    auto const margin = tr_parse_byte_size(settings_.min_free_space_resume_margin).value_or(64ULL * 1024ULL * 1024ULL);
+
+    auto const lock = std::lock_guard(free_space_mutex_);
+    min_free_space_rules_ = std::move(rules);
+    min_free_space_resume_margin_bytes_ = margin;
+}
+
+void tr_session::setMinFreeSpace(std::vector<std::string> specs)
+{
+    settings_.min_free_space = std::move(specs);
+    reloadMinFreeSpace();
+}
+
+void tr_session::setMinFreeSpaceResumeMargin(std::string_view const spec)
+{
+    settings_.min_free_space_resume_margin = spec;
+    reloadMinFreeSpace();
+}
+
+std::optional<uint64_t> tr_session::minFreeSpaceFor(std::string_view const dir) const
+{
+    auto rules = std::vector<tr_min_free_space_rule>{};
+    {
+        auto const lock = std::lock_guard(free_space_mutex_);
+        rules = min_free_space_rules_;
+    }
+
+    return tr_min_free_space_for(rules, dir);
+}
+
+uint64_t tr_session::freeSpaceFor(std::string_view const dir) const
+{
+    auto const capacity = capacity_for(dir);
+    if (!capacity)
+    {
+        return 0;
+    }
+
+    auto available = static_cast<uint64_t>(capacity->available);
+
+    auto reservations = std::map<tr_torrent_id_t, std::pair<uint64_t, uint64_t>>{};
+    {
+        auto const lock = std::lock_guard(free_space_mutex_);
+        reservations = move_reservations_;
+    }
+
+    auto const fsid = filesystem_id_for(dir);
+    for (auto const& entry : reservations)
+    {
+        auto const& reservation = entry.second;
+        if (reservation.first == fsid)
+        {
+            available -= std::min(available, reservation.second);
+        }
+    }
+
+    return available;
+}
+
+bool tr_session::wouldViolateMinFreeSpace(tr_torrent const* const tor) const
+{
+    auto const dir = tor->current_dir().sv();
+    if (auto const limit = minFreeSpaceFor(dir); limit)
+    {
+        if (freeSpaceFor(dir) > *limit)
+        {
+            return false;
+        }
+
+        // Let a torrent finish when continuing it won't consume additional
+        // space (the files are already preallocated) or only a small tail
+        // remains. Finishing can free the staging directory when the
+        // completion move runs.
+        auto const remaining = tor->left_until_done();
+        if (remaining == 0 || remaining <= min_free_space_resume_margin_bytes_)
+        {
+            return false;
+        }
+
+        if (tor->size_on_disk() >= tor->size_when_done())
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+bool tr_session::tryScheduleMoveToDownloadDir(tr_torrent* const tor, MoveDirCache* const cache)
+{
+    // Prefer the incomplete directory: a completed torrent's data may still
+    // live there after a partial or deferred move to the download directory.
+    auto source = std::string{ tor->current_dir().sv() };
+    if (!std::empty(tor->incomplete_dir()) && tor->has_wanted_files_in(tor->incomplete_dir().sv()))
+    {
+        source = std::string{ tor->incomplete_dir().sv() };
+    }
+
+    auto const target = std::string{ tor->download_dir().sv() };
+
+    if (source == target)
+    {
+        return true;
+    }
+
+    auto const get_dir_info = [cache](std::string_view const dir) -> MoveDirInfo
+    {
+        auto key = std::string{ dir };
+
+        if (cache != nullptr)
+        {
+            if (auto const it = cache->find(key); it != std::end(*cache))
+            {
+                return it->second;
+            }
+        }
+
+        auto info = MoveDirInfo{};
+        if (auto const capacity = capacity_for(dir); capacity)
+        {
+            info.available = static_cast<uint64_t>(capacity->available);
+        }
+        info.filesystem_id = filesystem_id_for(dir);
+
+        if (cache != nullptr)
+        {
+            cache->emplace(std::move(key), info);
+        }
+
+        return info;
+    };
+
+    if (auto const limit = minFreeSpaceFor(target); limit)
+    {
+        auto const source_info = get_dir_info(source);
+        auto const target_info = get_dir_info(target);
+        auto const same_fs = source_info.filesystem_id != 0 && source_info.filesystem_id == target_info.filesystem_id;
+
+        // A rename on the same filesystem doesn't consume extra space.
+        if (!same_fs)
+        {
+            auto const need = tor->pending_move_bytes() != 0 ? tor->pending_move_bytes() : tor->size_on_disk(source);
+
+            auto free = target_info.available;
+            {
+                auto const lock = std::lock_guard(free_space_mutex_);
+                for (auto const& [id, reservation] : move_reservations_)
+                {
+                    if (reservation.first == target_info.filesystem_id)
+                    {
+                        free -= std::min(free, reservation.second);
+                    }
+                }
+            }
+
+            if (free < need || free - need < *limit)
+            {
+                if (!tor->is_pending_move())
+                {
+                    tr_logAddInfoTor(
+                        tor,
+                        fmt::format("Waiting for space to move to '{}': free={} need={} limit={}", target, free, need, *limit));
+                }
+
+                tor->set_pending_move(true, need);
+                return false;
+            }
+
+            if (target_info.filesystem_id != 0)
+            {
+                auto const lock = std::lock_guard(free_space_mutex_);
+                move_reservations_[tor->id()] = { target_info.filesystem_id, need };
+            }
+        }
+    }
+
+    tor->set_pending_move(false);
+    tor->set_location(target, true, nullptr, source);
+    return true;
+}
+
+bool tr_session::targetHasSpaceForDoneScript(tr_torrent* const tor, MoveDirCache* const cache)
+{
+    auto source = std::string{ tor->current_dir().sv() };
+    if (!std::empty(tor->incomplete_dir()) && tor->has_wanted_files_in(tor->incomplete_dir().sv()))
+    {
+        source = std::string{ tor->incomplete_dir().sv() };
+    }
+
+    auto const target = std::string{ tor->download_dir().sv() };
+    if (source == target)
+    {
+        tor->set_pending_move(false);
+        return true;
+    }
+
+    auto const get_dir_info = [cache](std::string_view const dir) -> MoveDirInfo
+    {
+        auto key = std::string{ dir };
+
+        if (cache != nullptr)
+        {
+            if (auto const it = cache->find(key); it != std::end(*cache))
+            {
+                return it->second;
+            }
+        }
+
+        auto info = MoveDirInfo{};
+        if (auto const capacity = capacity_for(dir); capacity)
+        {
+            info.available = static_cast<uint64_t>(capacity->available);
+        }
+        info.filesystem_id = filesystem_id_for(dir);
+
+        if (cache != nullptr)
+        {
+            cache->emplace(std::move(key), info);
+        }
+
+        return info;
+    };
+
+    auto const source_info = get_dir_info(source);
+    auto const target_info = get_dir_info(target);
+    auto const same_fs = source_info.filesystem_id != 0 && source_info.filesystem_id == target_info.filesystem_id;
+
+    if (same_fs)
+    {
+        tor->set_pending_move(false);
+        return true;
+    }
+
+    auto const need = tor->pending_move_bytes() != 0 ? tor->pending_move_bytes() : tor->size_on_disk(source);
+    auto free = target_info.available;
+    {
+        auto const lock = std::lock_guard(free_space_mutex_);
+        for (auto const& [id, reservation] : move_reservations_)
+        {
+            if (reservation.first == target_info.filesystem_id)
+            {
+                free -= std::min(free, reservation.second);
+            }
+        }
+    }
+
+    auto const limit = minFreeSpaceFor(target);
+    if (free < need || (limit && free - need < *limit))
+    {
+        if (!tor->is_pending_move())
+        {
+            auto const limit_text = limit.has_value() ? fmt::format("{}", *limit) : std::string{ "none" };
+            tr_logAddInfoTor(
+                tor,
+                fmt::format(
+                    "Waiting for space before done script: target='{}' free={} need={} limit={}",
+                    target,
+                    free,
+                    need,
+                    limit_text));
+        }
+
+        tor->set_pending_move(true, need);
+        return false;
+    }
+
+    tor->set_pending_move(false);
+    return true;
+}
+
+void tr_session::releaseMoveReservation(tr_torrent_id_t const tor_id)
+{
+    auto const lock = std::lock_guard(free_space_mutex_);
+    move_reservations_.erase(tor_id);
+}
+
+void tr_session::updateFreeSpaceLimits()
+{
+    TR_ASSERT(am_in_session_thread());
+
+    struct DirInfo
+    {
+        std::optional<uint64_t> limit;
+        uint64_t free = 0;
+    };
+
+    auto cache = std::map<std::string, DirInfo>{};
+    auto const dir_info = [this, &cache](std::string_view const dir) -> DirInfo const&
+    {
+        auto key = std::string{ dir };
+        if (auto const iter = cache.find(key); iter != std::end(cache))
+        {
+            return iter->second;
+        }
+
+        auto const limit = minFreeSpaceFor(dir);
+        auto const free = freeSpaceFor(dir);
+        return cache.emplace(std::move(key), DirInfo{ limit, free }).first->second;
+    };
+
+    // Pause running downloads that have reached their floor.
+    for (auto* const tor : torrents())
+    {
+        if (!tor->is_running() || tor->is_done() || tor->is_space_paused())
+        {
+            continue;
+        }
+
+        auto const& info = dir_info(tor->current_dir().sv());
+        if (info.limit && info.free <= *info.limit)
+        {
+            // A tiny remaining tail (or a finished torrent) is allowed to
+            // continue even below the floor so it can complete and free the
+            // staging directory.
+            auto const remaining = tor->left_until_done();
+            if (remaining != 0 && remaining > min_free_space_resume_margin_bytes_)
+            {
+                tr_logAddInfoTor(
+                    tor,
+                    fmt::format("Pausing torrent: free={} limit={} dir='{}'", info.free, *info.limit, tor->current_dir().sv()));
+                tor->pause_for_space();
+            }
+        }
+    }
+
+    // Resume space-paused torrents once there is headroom again.
+    for (auto* const tor : torrents())
+    {
+        if (!tor->is_space_paused())
+        {
+            continue;
+        }
+
+        auto const& info = dir_info(tor->current_dir().sv());
+        if (!info.limit || info.free >= *info.limit + min_free_space_resume_margin_bytes_ ||
+            tor->left_until_done() <= min_free_space_resume_margin_bytes_)
+        {
+            tor->resume_after_space();
+        }
+    }
+
+    // Retry completion moves and deferred done scripts that were waiting for
+    // target space.
+    for (auto* const tor : torrents())
+    {
+        if (tor->is_pending_move())
+        {
+            enqueueDoneAction(tor->id());
+        }
+    }
+}
+
+void tr_session::enqueueDoneAction(tr_torrent_id_t const tor_id)
+{
+    TR_ASSERT(am_in_session_thread());
+
+    if (done_action_queued_.insert(tor_id).second)
+    {
+        done_action_queue_.push_back(tor_id);
+    }
+
+    processDoneActionQueue();
+}
+
+void tr_session::processDoneActionQueue()
+{
+    TR_ASSERT(am_in_session_thread());
+
+    if (done_action_active_)
+    {
+        return;
+    }
+
+    while (!std::empty(done_action_queue_))
+    {
+        auto const tor_id = done_action_queue_.front();
+        done_action_queue_.pop_front();
+        done_action_queued_.erase(tor_id);
+
+        auto* const tor = torrents().get(tor_id);
+        if (tor == nullptr || !tor->is_done())
+        {
+            continue;
+        }
+
+        if (!moveCompletedTorrentsEnabled())
+        {
+            // The external done script owns the move. Don't run it until the
+            // target can absorb the data without violating min-free-space.
+            if (!targetHasSpaceForDoneScript(tor))
+            {
+                continue; // updateFreeSpaceLimits() will re-enqueue it
+            }
+
+            tor->script_on_done_pending_ = true;
+            done_action_active_ = true;
+
+            if (!tor->call_script_if_enabled(
+                    TR_SCRIPT_ON_TORRENT_DONE,
+                    [this, tor_id](int exit_status)
+                    { run_in_session_thread([this, tor_id, exit_status]() { onDoneScriptFinished(tor_id, exit_status); }); }))
+            {
+                done_action_active_ = false;
+            }
+
+            return;
+        }
+
+        auto const all_in_download = tor->all_wanted_files_in(tor->download_dir().sv());
+        auto const has_incomplete_data = !all_in_download && !std::empty(tor->incomplete_dir()) &&
+            tor->has_wanted_files_in(tor->incomplete_dir().sv());
+        auto const source = has_incomplete_data ? tor->incomplete_dir() : tor->current_dir();
+
+        if (!all_in_download && source != tor->download_dir())
+        {
+            tor->script_on_done_pending_ = true;
+
+            if (!tryScheduleMoveToDownloadDir(tor))
+            {
+                // Waiting for target space; updateFreeSpaceLimits() will re-enqueue it.
+                continue;
+            }
+
+            done_action_active_ = true;
+            return;
+        }
+
+        // Don't run the done script unless every wanted file is really in the
+        // download directory. This also avoids a no-op move that would never
+        // call back and leave done_action_active_ stuck.
+        if (!all_in_download)
+        {
+            continue;
+        }
+
+        if (tor->script_on_done_pending_)
+        {
+            tor->script_on_done_pending_ = false;
+            done_action_active_ = true;
+
+            if (!tor->call_script_if_enabled(
+                    TR_SCRIPT_ON_TORRENT_DONE,
+                    [this, tor_id](int exit_status)
+                    { run_in_session_thread([this, tor_id, exit_status]() { onDoneScriptFinished(tor_id, exit_status); }); }))
+            {
+                done_action_active_ = false;
+            }
+
+            return;
+        }
+    }
+}
+
+void tr_session::onDoneMoveFinished(tr_torrent_id_t const tor_id, bool const move_ok)
+{
+    TR_ASSERT(am_in_session_thread());
+
+    auto* const tor = torrents().get(tor_id);
+
+    if (move_ok && tor != nullptr && tor->is_done() && tor->script_on_done_pending_ &&
+        tor->all_wanted_files_in(tor->download_dir().sv()))
+    {
+        tor->script_on_done_pending_ = false;
+
+        if (tor->call_script_if_enabled(
+                TR_SCRIPT_ON_TORRENT_DONE,
+                [this, tor_id](int exit_status)
+                { run_in_session_thread([this, tor_id, exit_status]() { onDoneScriptFinished(tor_id, exit_status); }); }))
+        {
+            return; // wait for the script exit before starting the next torrent
+        }
+    }
+
+    onDoneActionFinished();
+
+    if (move_ok && tor != nullptr && tor->is_done() && tor->script_on_done_pending_)
+    {
+        // The move reported success but not all wanted data is in the target.
+        // Keep the done action queued so it gets retried.
+        enqueueDoneAction(tor_id);
+    }
+}
+
+void tr_session::onDoneActionFinished()
+{
+    TR_ASSERT(am_in_session_thread());
+
+    done_action_active_ = false;
+    processDoneActionQueue();
+}
+
+void tr_session::onDoneScriptFinished(tr_torrent_id_t const /*tor_id*/, int const /*exit_status*/)
+{
+    TR_ASSERT(am_in_session_thread());
+
+    // The external done script owns moving, temp-file cleanup and torrent
+    // removal. Doing any of that here would remove a torrent whose data could
+    // not be moved yet, e.g. while the target is below its min-free-space.
+    onDoneActionFinished();
 }
 
 namespace
@@ -792,6 +1390,7 @@ void tr_session::setSettings(tr_session::Settings&& settings_in, bool force)
     auto const lock = unique_lock();
 
     std::swap(settings_, settings_in);
+    reloadMinFreeSpace();
     auto const& new_settings = settings_;
     auto const& old_settings = settings_in;
 
@@ -805,7 +1404,7 @@ void tr_session::setSettings(tr_session::Settings&& settings_in, bool force)
 #ifndef _WIN32
     if (auto const& val = new_settings.umask; force || val != old_settings.umask)
     {
-        ::umask(val);
+        ::umask(static_cast<mode_t>(val));
     }
 #endif
 
@@ -1451,6 +2050,7 @@ void tr_session::closeImplPart1(std::promise<void>* closed_promise, std::chrono:
     auto const now = std::chrono::steady_clock::now();
     auto const remaining_ms = now < deadline ? std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now) : 0ms;
     this->web_->startShutdown(remaining_ms);
+    this->local_data.shutdown();
 
     // recycle the now-unused save_timer_ here to wait for UDP shutdown
     TR_ASSERT(!save_timer_);
@@ -1478,7 +2078,7 @@ void tr_session::closeImplPart2(std::promise<void>* closed_promise, std::chrono:
 
     stats().save();
     peer_mgr_.reset();
-    openFiles().close_all();
+    local_data.close_all();
     tr_utp_close(this);
     this->udp_core_.reset();
 
@@ -1561,6 +2161,11 @@ void session_load_torrents(tr_session* session, tr_ctor* ctor, std::promise<size
     for (auto const& filename : get_remaining_files(folder, queue_order))
     {
         load_func(filename);
+    }
+
+    for (auto* const tor : session->torrents())
+    {
+        tor->resume_pending_move();
     }
 
     if (n_torrents != 0U)
@@ -2079,18 +2684,6 @@ void tr_session::verify_add(tr_torrent* const tor)
 
 // ---
 
-void tr_session::close_torrent_files(tr_torrent_id_t const tor_id) noexcept
-{
-    openFiles().close_torrent(tor_id);
-}
-
-void tr_session::close_torrent_file(tr_torrent const& tor, tr_file_index_t file_num) noexcept
-{
-    openFiles().close_file(tor.id(), file_num);
-}
-
-// ---
-
 void tr_sessionSetQueueStartCallback(tr_session* session, tr_session_queue_start_func callback)
 {
     session->setQueueStartCallback(std::move(callback));
@@ -2163,6 +2756,20 @@ auto makeTorrentDir(std::string_view config_dir)
 #endif
 }
 
+auto makeArchiveDir(std::string_view config_dir)
+{
+#if defined(__APPLE__) || defined(_WIN32)
+    return makeSubdir(config_dir, "Archives"sv);
+#else
+    return makeSubdir(config_dir, "archives"sv);
+#endif
+}
+
+auto makeArchiveExportsDir(std::string_view archive_dir)
+{
+    return makeSubdir(archive_dir, "exports"sv);
+}
+
 auto makeBlocklistDir(std::string_view config_dir)
 {
     return makeSubdir(config_dir, "blocklists"sv);
@@ -2183,6 +2790,8 @@ tr_session::tr_session(std::string_view config_dir, tr_variant const& settings_d
     , config_dir_lock_{ makeConfigDirLock(config_dir) }
     , resume_dir_{ makeResumeDir(config_dir) }
     , torrent_dir_{ makeTorrentDir(config_dir) }
+    , archive_dir_{ makeArchiveDir(config_dir) }
+    , archive_exports_dir_{ makeArchiveExportsDir(archive_dir_) }
     , blocklist_dir_{ makeBlocklistDir(config_dir) }
     , session_thread_{ tr_session_thread::create() }
     , timer_maker_{ std::make_unique<tr::EvTimerMaker>(event_base()) }

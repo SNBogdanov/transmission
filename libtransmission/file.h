@@ -159,6 +159,34 @@ bool tr_sys_path_copy(std::string_view src_path, std::string_view dst_path, tr_e
 [[nodiscard]] std::optional<tr_sys_path_capacity> tr_sys_path_get_capacity(std::string_view path, tr_error* error = nullptr);
 
 /**
+ * @brief Get the number of bytes actually allocated on disk for a file.
+ *
+ * Unlike the apparent file size, this accounts for sparse files and
+ * filesystem block allocation.
+ *
+ * @param[in]  path  Path to file.
+ * @param[out] error Pointer to error object. Optional, pass `nullptr` if you
+ *                   are not interested in error details.
+ *
+ * @return Allocated size in bytes on success, or 0 otherwise.
+ */
+[[nodiscard]] uint64_t tr_sys_path_get_size_on_disk(std::string_view path, tr_error* error = nullptr);
+
+/**
+ * @brief Get an opaque identifier for the filesystem that contains `path`.
+ *
+ * Paths with the same identifier are on the same filesystem, so moving a file
+ * between them can be done with a rename and does not consume extra space.
+ *
+ * @param[in]  path  Path to file or directory.
+ * @param[out] error Pointer to error object. Optional, pass `nullptr` if you
+ *                   are not interested in error details.
+ *
+ * @return Filesystem identifier on success, or 0 otherwise.
+ */
+[[nodiscard]] uint64_t tr_sys_path_get_filesystem_id(std::string_view path, tr_error* error = nullptr);
+
+/**
  * @brief Portability wrapper for `access()`.
  *
  * @param[in]  path  Path to file or directory.

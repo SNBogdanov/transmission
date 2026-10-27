@@ -8,6 +8,7 @@ target_sources(libtransmission-test
         announcer-test.cc
         announcer-udp-test.cc
         api-compat-test.cc
+        archive-bundle-test.cc
         benc-test.cc
         bep55-holepunch-test.cc
         bep55-introducer-store-test.cc

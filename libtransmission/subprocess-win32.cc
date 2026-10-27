@@ -11,6 +11,7 @@
 #include <iterator>
 #include <string>
 #include <string_view>
+#include <thread>
 
 #include <fmt/format.h>
 #include <fmt/xchar.h> // for wchar_t support
@@ -284,7 +285,8 @@ bool tr_spawn_async(
     char const* const* cmd,
     std::map<std::string_view, std::string_view> const& env,
     std::string_view work_dir,
-    tr_error* error)
+    tr_error* error,
+    tr_spawn_callback on_exit)
 {
     // full_env = current_env + env;
     auto full_env = get_current_env();
@@ -324,7 +326,25 @@ bool tr_spawn_async(
     if (ret)
     {
         CloseHandle(pi.hThread);
-        CloseHandle(pi.hProcess);
+        if (on_exit)
+        {
+            auto reaper = std::thread(
+                [process = pi.hProcess, on_exit = std::move(on_exit)]() mutable
+                {
+                    WaitForSingleObject(process, INFINITE);
+
+                    auto code = DWORD{};
+                    GetExitCodeProcess(process, &code);
+                    CloseHandle(process);
+
+                    on_exit(static_cast<int>(code));
+                });
+            reaper.detach();
+        }
+        else
+        {
+            CloseHandle(pi.hProcess);
+        }
     }
     else
     {

@@ -123,6 +123,14 @@ public:
     };
     std::vector<std::string> ip_endpoint_ipv4 = { "https://ip4.transmissionbt.com/" };
     std::vector<std::string> ip_endpoint_ipv6 = { "https://ip6.transmissionbt.com/" };
+    std::vector<std::string> min_free_space;
+    std::string min_free_space_resume_margin = "64M";
+    bool move_completed_torrents_enabled = true;
+    bool move_partial_files_enabled = false;
+    bool script_torrent_done_remove_torrent_enabled = false;
+    bool script_torrent_done_remove_temp_files_enabled = false;
+    bool script_torrent_done_remove_all_files_enabled = false;
+    bool force_finish_partial_files_enabled = false;
     std::chrono::milliseconds sleep_per_seconds_during_verify = std::chrono::milliseconds{ 100 };
     std::optional<std::string> proxy_url;
     std::string announce_ip;
@@ -138,7 +146,7 @@ public:
     std::string script_torrent_done_seeding_filename;
     tr_encryption_mode encryption_mode = TR_ENCRYPTION_PREFERRED;
     tr_log_level log_level = TR_LOG_INFO;
-    tr_mode_t umask = 022;
+    tr_mode_t umask = static_cast<tr_mode_t>(022);
     tr_file_preallocation preallocation_mode = tr_file_preallocation::Sparse;
     tr_port peer_port_random_high = tr_port::from_host(65535);
     tr_port peer_port_random_low = tr_port::from_host(49152);
@@ -176,6 +184,17 @@ public:
         Field<&SessionSettings::ip_endpoint_ipv6>{ TR_KEY_ip_endpoints_ipv6 },
         Field<&SessionSettings::lpd_enabled>{ TR_KEY_lpd_enabled },
         Field<&SessionSettings::log_level>{ TR_KEY_message_level },
+        Field<&SessionSettings::min_free_space>{ TR_KEY_min_free_space },
+        Field<&SessionSettings::min_free_space_resume_margin>{ TR_KEY_min_free_space_resume_margin },
+        Field<&SessionSettings::move_completed_torrents_enabled>{ TR_KEY_move_completed_torrents_enabled },
+        Field<&SessionSettings::move_partial_files_enabled>{ TR_KEY_move_partial_files_enabled },
+        Field<&SessionSettings::script_torrent_done_remove_torrent_enabled>{
+            TR_KEY_script_torrent_done_remove_torrent_enabled },
+        Field<&SessionSettings::script_torrent_done_remove_temp_files_enabled>{
+            TR_KEY_script_torrent_done_remove_temp_files_enabled },
+        Field<&SessionSettings::script_torrent_done_remove_all_files_enabled>{
+            TR_KEY_script_torrent_done_remove_all_files_enabled },
+        Field<&SessionSettings::force_finish_partial_files_enabled>{ TR_KEY_force_finish_partial_files_enabled },
         Field<&SessionSettings::peer_congestion_algorithm>{ TR_KEY_peer_congestion_algorithm },
         Field<&SessionSettings::peer_limit_global>{ TR_KEY_peer_limit_global },
         Field<&SessionSettings::peer_limit_per_torrent>{ TR_KEY_peer_limit_per_torrent },
@@ -305,7 +324,7 @@ public:
     std::string url = std::string{ TrDefaultHttpServerBasePath };
     std::string username;
     std::string whitelist_str = std::string{ TrDefaultRpcWhitelist };
-    tr_mode_t socket_mode = 0750;
+    tr_mode_t socket_mode = static_cast<tr_mode_t>(0750);
     tr_port port = tr_port::from_host(TrDefaultRpcPort);
 
 private:

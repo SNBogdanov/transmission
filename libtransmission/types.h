@@ -43,7 +43,9 @@ using tr_byte_index_t = uint64_t;
 
 using tr_file_index_t = size_t;
 
-using tr_mode_t = uint16_t;
+enum class tr_mode_t : uint16_t
+{
+};
 
 // https://www.bittorrent.org/beps/bep_0003.html
 // A string of length 20 which this downloader uses as its id. Each
@@ -341,7 +343,9 @@ enum tr_torrent_activity : uint8_t
     TR_STATUS_DOWNLOAD_WAIT = 3, /* Queued to download */
     TR_STATUS_DOWNLOAD = 4, /* Downloading */
     TR_STATUS_SEED_WAIT = 5, /* Queued to seed */
-    TR_STATUS_SEED = 6 /* Seeding */
+    TR_STATUS_SEED = 6, /* Seeding */
+    TR_STATUS_SPACE_PAUSED = 7, /* Paused: not enough free space */
+    TR_STATUS_PENDING_MOVE = 8 /* Waiting for space to move to the download directory */
 };
 
 enum tr_tracker_state : uint8_t

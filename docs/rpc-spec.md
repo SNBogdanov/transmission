@@ -4,16 +4,19 @@
 > The old bespoke RPC protocol, and the old mix of kebab-case and camelCase strings, are still supported in Transmission 4 but are deprecated and will be removed in the future. People using the old protocol should update their code!
 >
 > For documentation of the old RPC protocol and strings, please consult documentation from previous versions.
-> https://github.com/transmission/transmission/blob/4.0.6/docs/rpc-spec.md
+> <https://github.com/transmission/transmission/blob/4.0.6/docs/rpc-spec.md>
 
-# Transmission's RPC specification
+## Transmission's RPC specification
+
 This document describes a protocol for interacting with Transmission sessions remotely.
 
 ### 1.1 Terminology
+
 The [JSON](https://www.json.org/) terminology in [RFC 8259](https://datatracker.ietf.org/doc/html/rfc8259) is used.
 RPC requests and responses are formatted in JSON.
 
 ### 1.2 Tools
+
 If `transmission-remote` is called with a `--debug` argument, its RPC traffic to the Transmission server will be dumped to the terminal. This can be useful when you want to compare requests in your application to another for reference.
 
 If `transmission-qt` is run with an environment variable `TR_RPC_VERBOSE` set, it too will dump the RPC requests and responses to the terminal for inspection.
@@ -21,24 +24,26 @@ If `transmission-qt` is run with an environment variable `TR_RPC_VERBOSE` set, i
 Lastly, using the browser's developer tools in the Transmission web client is always an option.
 
 ### 1.3 Libraries of ready-made wrappers
+
 Some people outside of the Transmission project have written libraries that wrap this RPC API. These aren't supported by the Transmission project, but are listed here in the hope that they may be useful:
 
 | Language | Link
-|:---|:---
-| C# .NET10 | https://www.nuget.org/packages/Transmission.API.RPC.NET/
-| C# | https://www.nuget.org/packages/Transmission.API.RPC
-| Go | https://github.com/hekmon/transmissionrpc
-| Python | https://github.com/Trim21/transmission-rpc
-| Rust | https://crates.io/crates/transmission-rpc
-
+| :--- | :---
+| C# .NET10 | <https://www.nuget.org/packages/Transmission.API.RPC.NET/>
+| C# | <https://www.nuget.org/packages/Transmission.API.RPC>
+| Go | <https://github.com/hekmon/transmissionrpc>
+| Python | <https://github.com/Trim21/transmission-rpc>
+| Rust | <https://crates.io/crates/transmission-rpc>
 
 ## 2 Message format
+
 Transmission follows the [JSON-RPC 2.0](https://www.jsonrpc.org/specification) specification and supports the entirety of it,
 except that parameters by-position is not supported, meaning the request parameters must be an Object.
 
 Response parameters are returned in the `result` Object.
 
 #### Example request
+
 ```json
 {
    "jsonrpc": "2.0",
@@ -51,6 +56,7 @@ Response parameters are returned in the `result` Object.
 ```
 
 #### Example response
+
 ```json
 {
    "jsonrpc": "2.0",
@@ -88,6 +94,7 @@ In Transmission, this key is an Object that includes:
 ```
 
 ### 2.2 Transport mechanism
+
 HTTP POSTing a JSON-encoded request is the preferred way of communicating
 with a Transmission RPC server. The current Transmission implementation
 has the default URL as `http://host:9091/transmission/rpc`. Clients
@@ -99,6 +106,7 @@ The RPC server will normally return HTTP 200 regardless of whether the
 request succeeded. For JSON-RPC 2.0 notifications, HTTP 204 will be returned.
 
 #### 2.2.1 CSRF protection
+
 Most Transmission RPC servers require a `X-Transmission-Session-Id`
 header to be sent with requests, to prevent CSRF attacks.
 
@@ -111,6 +119,7 @@ So, the correct way to handle a 409 response is to update your
 `X-Transmission-Session-Id` and to resend the previous request.
 
 #### 2.2.2 DNS rebinding protection
+
 Additional check is being made on each RPC request to make sure that the
 client sending the request does so using one of the allowed hostnames by
 which RPC server is meant to be available.
@@ -125,6 +134,7 @@ For more information on configuration, see [Editing Configuration Files](Editing
 `rpc_host_whitelist_enabled` and `rpc_host_whitelist` keys.
 
 #### 2.2.3 Authentication
+
 Enabling authentication is an optional security feature that can be enabled
 on Transmission RPC servers. Authentication occurs by method of HTTP Basic
 Access Authentication.
@@ -136,7 +146,9 @@ where <b64 credentials> is equal to a base64 encoded string of the
 username and password (respectively), separated by a colon.
 
 ## 3 Torrent requests
+
 ### 3.1 Torrent action requests
+
 | Method name          | libtransmission function | Description
 |:--|:--|:--
 | `torrent_start`      | tr_torrentStart          | start torrent
@@ -160,6 +172,7 @@ restarts. Use torrent hashes if you need stable ids.
 Response parameters: none
 
 ### 3.2 Torrent mutator: `torrent_set`
+
 Method name: `torrent_set`
 
 Request parameters:
@@ -174,6 +187,7 @@ Request parameters:
 | `group`                          | string   | The name of this torrent's bandwidth group
 | `honors_session_limits`          | boolean  | true if session upload limits are honored
 | `ids`                            | array    | torrent list, as described in 3.1
+| `incomplete_dir`                 | string   | per-torrent directory for incomplete data (fork extension). Changes the path only; use `torrent_set_incomplete_dir` with `move` to move existing data.
 | `labels`                         | array    | array of string labels
 | `location`                       | string   | new location of the torrent's content
 | `peer_limit`                     | number   | maximum number of peers
@@ -201,6 +215,7 @@ for `files_wanted`, `files_unwanted`, `priority_high`, `priority_low`, or
    Response parameters: none
 
 ### 3.3 Torrent accessor: `torrent_get`
+
 Method name: `torrent_get`.
 
 Request parameters:
@@ -235,21 +250,21 @@ in [libtransmission/transmission.h](../libtransmission/transmission.h).
 The 'source' column here corresponds to the data structure there.
 
 | Key | Value Type | transmission.h source
-|:--|:--|:--
+| :-- | :-- | :--
 | `activity_date` | number | tr_stat
 | `added_date` | number | tr_stat
-| `availability` | array (see below)| tr_torrentAvailability()
+| `availability` | array (see below) | tr_torrentAvailability()
 | `bandwidth_priority` | number | tr_priority_t
-| `bytes_completed` | array (see below)| n/a
+| `bytes_completed` | array (see below) | n/a
 | `comment` | string | tr_torrent_view
-| `corrupt_ever`| number | tr_stat
-| `creator`| string | tr_torrent_view
-| `date_created`| number| tr_torrent_view
-| `desired_available`| number| tr_stat
-| `done_date`| number | tr_stat
-| `download_dir` | string  | tr_torrent
-| `downloaded_ever` | integer  | tr_stat
-| `download_limit` | integer  | tr_torrent
+| `corrupt_ever` | number | tr_stat
+| `creator` | string | tr_torrent_view
+| `date_created` | number | tr_torrent_view
+| `desired_available` | number | tr_stat
+| `done_date` | number | tr_stat
+| `download_dir` | string | tr_torrent
+| `downloaded_ever` | integer | tr_stat
+| `download_limit` | integer | tr_torrent
 | `download_limited` | boolean | tr_torrent
 | `edit_date` | number | tr_stat
 | `error` | number | tr_stat
@@ -257,65 +272,66 @@ The 'source' column here corresponds to the data structure there.
 | `eta` | number | tr_stat
 | `eta_idle` | number | tr_stat
 | `file_count` | number | tr_info
-| `files`| array (see below)| n/a
-| `file_stats`| array (see below)| n/a
-| `group`| string| n/a
-| `hash_string`| string| tr_torrent_view
-| `have_unchecked`| number| tr_stat
-| `have_valid`| number| tr_stat
-| `honors_session_limits`| boolean| tr_torrent
+| `files` | array (see below) | n/a
+| `file_stats` | array (see below) | n/a
+| `group` | string | n/a
+| `hash_string` | string | tr_torrent_view
+| `have_unchecked` | number | tr_stat
+| `have_valid` | number | tr_stat
+| `honors_session_limits` | boolean | tr_torrent
 | `id` | integer | tr_torrent
-| `is_finished` | boolean| tr_stat
-| `is_private` | boolean| tr_torrent
-| `is_stalled` | boolean| tr_stat
+| `incomplete_dir` | string | tr_torrent (fork extension)
+| `is_finished` | boolean | tr_stat
+| `is_private` | boolean | tr_torrent
+| `is_stalled` | boolean | tr_stat
 | `labels` | array of strings | tr_torrent
-| `left_until_done` | number| tr_stat
-| `magnet_link` | string| n/a
-| `manual_announce_time` | number| **DEPRECATED** don't use it, it never worked
-| `max_connected_peers` | number| tr_torrent
-| `metadata_percent_complete` | double| tr_stat
-| `name` | string| tr_torrent_view
-| `peer_limit` | number| tr_torrent
-| `peers` | array (see below)| n/a
-| `peers_connected` | number| tr_stat
-| `peers_from` | object (see below)| n/a
-| `peers_getting_from_us` | number| tr_stat
-| `peers_sending_to_us` | number| tr_stat
+| `left_until_done` | number | tr_stat
+| `magnet_link` | string | n/a
+| `manual_announce_time` | number | **DEPRECATED** don't use it, it never worked
+| `max_connected_peers` | number | tr_torrent
+| `metadata_percent_complete` | double | tr_stat
+| `name` | string | tr_torrent_view
+| `peer_limit` | number | tr_torrent
+| `peers` | array (see below) | n/a
+| `peers_connected` | number | tr_stat
+| `peers_from` | object (see below) | n/a
+| `peers_getting_from_us` | number | tr_stat
+| `peers_sending_to_us` | number | tr_stat
 | `percent_complete` | double | tr_stat
 | `percent_done` | double | tr_stat
-| `pieces` | string (see below)| tr_torrent
-| `piece_count`| number| tr_torrent_view
-| `piece_size`| number| tr_torrent_view
-| `priorities`| array (see below)| n/a
-| `primary_mime_type`| string| tr_torrent
-| `queue_position`| number| tr_stat
-| `rate_download` (B/s)| number| tr_stat
-| `rate_upload` (B/s)| number| tr_stat
-| `recheck_progress`| double| tr_stat
-| `seconds_downloading`| number| tr_stat
-| `seconds_seeding`| number| tr_stat
-| `seed_idle_limit`| number| tr_torrent
-| `seed_idle_mode`| number| tr_inactivelimit
-| `seed_ratio_limit`| double| tr_torrent
-| `seed_ratio_mode`| number| tr_ratiolimit
-| `sequential_download`| boolean| tr_torrent
-| `sequential_download_from_piece`| number| tr_torrent
-| `size_when_done`| number| tr_stat
-| `start_date`| number| tr_stat
-| `status`| number (see below)| tr_stat
-| `torrent_file`| string| tr_info
-| `total_size`| number| tr_torrent_view
-| `trackers`| array (see below)| n/a
+| `pieces` | string (see below) | tr_torrent
+| `piece_count` | number | tr_torrent_view
+| `piece_size` | number | tr_torrent_view
+| `priorities` | array (see below) | n/a
+| `primary_mime_type` | string | tr_torrent
+| `queue_position` | number | tr_stat
+| `rate_download` (B/s) | number | tr_stat
+| `rate_upload` (B/s) | number | tr_stat
+| `recheck_progress` | double | tr_stat
+| `seconds_downloading` | number | tr_stat
+| `seconds_seeding` | number | tr_stat
+| `seed_idle_limit` | number | tr_torrent
+| `seed_idle_mode` | number | tr_inactivelimit
+| `seed_ratio_limit` | double | tr_torrent
+| `seed_ratio_mode` | number | tr_ratiolimit
+| `sequential_download` | boolean | tr_torrent
+| `sequential_download_from_piece` | number | tr_torrent
+| `size_when_done` | number | tr_stat
+| `start_date` | number | tr_stat
+| `status` | number (see below) | tr_stat
+| `torrent_file` | string | tr_info
+| `total_size` | number | tr_torrent_view
+| `trackers` | array (see below) | n/a
 | `tracker_list` | string | string of announce URLs, one per line, with a blank line between tiers
-| `tracker_stats`| array (see below)| n/a
-| `uploaded_ever`| integer| tr_stat
-| `upload_limit`| integer| tr_torrent
-| `upload_limited`| boolean| tr_torrent
-| `upload_ratio`| double| tr_stat
-| `wanted`| array (see below)| n/a
-| `webseeds`| array of strings | **DEPRECATED** tr_tracker_view
-| `webseeds_ex`| array (see below)| n/a
-| `webseeds_sending_to_us`| number| tr_stat
+| `tracker_stats` | array (see below) | n/a
+| `uploaded_ever` | integer | tr_stat
+| `upload_limit` | integer | tr_torrent
+| `upload_limited` | boolean | tr_torrent
+| `upload_ratio` | double | tr_stat
+| `wanted` | array (see below) | n/a
+| `webseeds` | array of strings | **DEPRECATED** tr_tracker_view
+| `webseeds_ex` | array (see below) | n/a
+| `webseeds_sending_to_us` | number | tr_stat
 
 `availability`: An array of `piece_count` numbers representing the number of connected peers that have each piece, or -1 if we already have the piece ourselves.
 
@@ -324,7 +340,7 @@ The 'source' column here corresponds to the data structure there.
 `files`: array of objects, each containing:
 
 | Key | Value Type | transmission.h source
-|:--|:--|:--
+| :-- | :-- | :--
 | `bytes_completed` | number | tr_file_view
 | `length` | number | tr_file_view
 | `name` | string | tr_file_view
@@ -336,7 +352,7 @@ Files are returned in the order they are laid out in the torrent. References to 
 `file_stats`: a file's non-constant properties. An array of `tr_info.filecount` objects, in the same order as `files`, each containing:
 
 | Key | Value Type | transmission.h source
-|:--|:--|:--
+| :-- | :-- | :--
 | `bytes_completed` | number | tr_file_view
 | `wanted` | boolean | tr_file_view
 | `priority` | number | tr_file_view
@@ -379,15 +395,14 @@ Files are returned in the order they are laid out in the torrent. References to 
 | `from_pex`      | number     | tr_stat
 | `from_tracker`  | number     | tr_stat
 
-
 `pieces`: A bitfield holding `piece_count` flags which are set to 'true' if we have the piece matching that position. JSON doesn't allow raw binary data, so this is a base64-encoded string. (Source: tr_torrent)
 
 `priorities`: An array of `tr_torrentFileCount()` numbers. Each is the `tr_priority_t` mode for the corresponding file.
 
-`status`: A number between 0 and 6, where:
+`status`: A number between 0 and 8, where:
 
 | Value | Meaning
-|:--|:--
+| :-- | :--
 | 0 | Torrent is stopped
 | 1 | Torrent is queued to verify local data
 | 2 | Torrent is verifying local data
@@ -395,12 +410,15 @@ Files are returned in the order they are laid out in the torrent. References to 
 | 4 | Torrent is downloading
 | 5 | Torrent is queued to seed
 | 6 | Torrent is seeding
+| 7 | Torrent is paused because of insufficient free space
+| 8 | Torrent is waiting for free space to move to the download directory
 
+Clients that do not support the extended statuses receive legacy values: `7` is reported as `0` (stopped) and `8` as `6` (seeding). To receive `7` and `8`, send `X-Transmission-Client-Features: status/v2` in the request headers. The server advertises this capability as `status/v2` in `fork_features`.
 
 `trackers`: array of objects, each containing:
 
 | Key | Value Type | transmission.h source
-|:--|:--|:--
+| :-- | :-- | :--
 | `announce` | string | tr_tracker_view
 | `id` | integer | tr_tracker_view
 | `scrape` | string | tr_tracker_view
@@ -440,11 +458,10 @@ Files are returned in the order they are laid out in the torrent. References to 
 | `sitename`                 | string     | tr_tracker_view
 | `tier`                     | number     | tr_tracker_view
 
-
 `webseeds_ex`: array of objects, each containing:
 
 | Key | Value Type | transmission.h source
-|:--|:--|:--
+| :-- | :-- | :--
 | `url` | string | tr_webseed_view
 | `is_downloading` | boolean | tr_webseed_view
 | `download_bytes_per_second` | number | tr_webseed_view
@@ -495,6 +512,7 @@ Response:
 ```
 
 ### 3.4 Adding a torrent
+
 Method name: `torrent_add`
 
 Request parameters:
@@ -504,6 +522,7 @@ Request parameters:
 | `cookies`                        | string    | pointer to a string of one or more cookies.
 | `download_dir`                   | string    | path to download the torrent to
 | `filename`                       | string    | filename or URL of the .torrent file
+| `incomplete_dir`                 | string    | per-torrent directory for incomplete data (fork extension)
 | `labels`                         | array     | array of string labels
 | `metainfo`                       | string    | base64-encoded .torrent content
 | `paused`                         | boolean   | if true, don't start the torrent
@@ -519,6 +538,11 @@ Request parameters:
 
 Either `filename` **or** `metainfo` **must** be included. All other parameters are optional.
 
+`incomplete_dir` is a fork extension. It sets a per-torrent staging directory
+used while the torrent is incomplete; on completion the torrent is moved to
+`download_dir`, subject to the `min_free_space` rules. When omitted, the
+session-level `incomplete_dir` is used as a fallback.
+
 The format of the `cookies` should be `NAME=CONTENTS`, where `NAME` is the cookie name and `CONTENTS` is what the cookie should contain. Set multiple cookies like this: `name1=content1; name2=content2;` etc. See [libcurl documentation](http://curl.haxx.se/libcurl/c/curl_easy_setopt.html#CURLOPTCOOKIE) for more information.
 
 Response parameters:
@@ -528,6 +552,7 @@ Response parameters:
 * When attempting to add a duplicate torrent, a `torrent_duplicate` object in the same form is returned, but the response's `result` value is still `success`.
 
 ### 3.5 Removing a torrent
+
 Method name: `torrent_remove`
 
 | Key | Value Type | Description
@@ -538,6 +563,7 @@ Method name: `torrent_remove`
 Response parameters: none
 
 ### 3.6 Moving a torrent
+
 Method name: `torrent_set_location`
 
 Request parameters:
@@ -550,7 +576,29 @@ Request parameters:
 
 Response parameters: none
 
-### 3.7 Renaming a torrent's path
+### 3.7 Changing a torrent's incomplete directory
+
+Method name: `torrent_set_incomplete_dir`
+
+This is a fork extension. It changes the per-torrent directory used while the
+torrent is incomplete. When `move` is true, existing incomplete data is moved
+from the old staging directory (or the directory that currently holds the
+data) to the new one. The move is asynchronous: the request returns after it
+has been scheduled; poll `torrent-get` for `incomplete_dir`, `error`, and the
+torrent status to see when it completes.
+
+Request parameters:
+
+| Key | Value Type | Description
+|:--|:--|:--
+| `ids` | array | torrent list, as described in 3.1
+| `incomplete_dir` | string | new per-torrent directory for incomplete data
+| `move` | boolean | if true, move existing incomplete data to the new directory (default: false)
+
+Response parameters: none
+
+### 3.8 Renaming a torrent's path
+
 Method name: `torrent_rename_path`
 
 For more information on the use of this function, see the transmission.h
@@ -561,17 +609,195 @@ with `torrent_get`.
 Request parameters:
 
 | Key | Value Type | Description
-|:--|:--|:--
+| :-- | :-- | :--
 | `ids` | array | the torrent list, as described in 3.1 (must only be 1 torrent)
 | `path` | string | the path to the file or folder that will be renamed
 | `name` | string | the file or folder's new name
 
 Response parameters: `path`, `name`, and `id`, holding the torrent ID integer
 
-## 4  Session requests
-### 4.1 Session parameters
+### 3.9 Archiving torrents
+
+Method name: `torrent_archive`
+
+This is a fork extension. It stores stopped torrents, their resume data and
+metadata in named archives under the session's configuration directory
+(`Archives/` on Windows and macOS, `archives/` elsewhere). Archives are
+independent of the active session: saving removes the torrent from the
+session, and restoring adds it back.
+
+Every request takes an `action` string. Archive names are 1-128 characters;
+`exports` and `all` are reserved. The action-specific parameters are:
+
+#### `create_archive`
+
 | Key | Value Type | Description
-|:--|:--|:--
+| :-- | :-- | :--
+| `archive` | string | archive name
+
+Creates an empty archive directory. If the archive already exists, the call
+succeeds with `created` set to false. Response parameters: `created` (boolean).
+
+#### `delete_archive`
+
+| Key | Value Type | Description
+| :-- | :-- | :--
+| `archive` | string | archive name
+
+Deletes an archive only when it contains no saved torrents. Response
+parameters: `deleted` (boolean). Non-empty archives are rejected.
+
+#### `delete`
+
+| Key | Value Type | Description
+| :-- | :-- | :--
+| `archive` | string | archive name
+| `hash_string` | string | info hash of the archived torrent
+
+Removes the entry's `.torrent`, `.resume`, `.json`, and `.magnet` files from
+the archive. Downloaded data is not touched. Response parameters: `archive`,
+`hash_string`, `deleted` (boolean), and `files_removed` (number). A missing
+entry is rejected.
+
+#### `list_archives`
+
+Takes no parameters. Response parameters: `total` (number) and `archives`
+(array of archive names). Only directories directly under the session's
+archive root are returned. To list the entries in every archive, use `list`
+with `archive` omitted or set to `all`.
+
+#### `save`
+
+| Key | Value Type | Description
+| :-- | :-- | :--
+| `archive` | string | archive name
+| `ids` | array | torrent list, as described in 3.1
+| `delete_local_data` | boolean | also delete the torrent's downloaded files (default: false)
+| `overwrite` | boolean | replace an existing archive entry (default: false)
+
+The torrent is stopped, its resume file is written, and then it is removed
+from the session. Response parameters: `saved` (number) and, on partial
+failure, `errors` (array of `{ id, error }`).
+
+#### `restore`
+
+| Key | Value Type | Description
+| :-- | :-- | :--
+| `archive` | string | archive name
+| `hash_string` | string | info hash of the archived torrent
+| `download_dir` | string | optional absolute download directory
+| `remove` | boolean | remove the entry from the archive after restoring (default: false)
+| `verify` | boolean | run a full verification of local data after restoring (default: false)
+| `items` | array | restore multiple entries from any archives. Each item is an object with `archive`, `hash_string`, and optional `download_dir`, `remove`, `verify` |
+
+The entry may contain either `.torrent` metainfo or a `.magnet` link. If
+`remove` is true and deleting the archive entry fails, the torrent is still
+restored and `removed` is false with `remove_error` set.
+
+When `items` is set, top-level `archive` and `hash_string` are ignored. The
+top-level `download_dir`, `remove`, and `verify` values are defaults for items
+that omit those fields. Items are restored in order and a failure does not stop
+the remaining items.
+
+Single-entry response parameters: `hash_string`, `removed`, and optionally
+`remove_error`.
+
+Batch response parameters: `restored` (number), `entries` (array of per-entry
+results), and, when at least one item fails, `errors` (array of
+`{ archive, hash_string, error }`).
+
+#### `list`
+
+| Key | Value Type | Description
+| :-- | :-- | :--
+| `archive` | string | archive name. Omit or use `all` to list entries from every archive
+| `offset` | number | number of entries to skip (default: 0)
+| `limit` | number | maximum number of entries to return; 0 means all (default: 1000)
+| `sort_by` | string | sort key: `name`, `size` (`total_size`), `added_date`, `archived_date`, or `folder` (`download_dir`). Omit for archive/hash order
+| `sort_order` | string | `asc`/`ascending` or `desc`/`descending` (default: `asc`); only meaningful with `sort_by`
+| `label` | string | only include entries with this exact, case-sensitive label; omit or use an empty string for no filtering
+
+Response parameters: `total` (number) and `entries` (array). Each entry has
+`archive`, `hash_string`, `name`, `download_dir`, `labels`, `added_date`,
+`archived_date`, `total_size`, `local_data_deleted`, `has_torrent`,
+`has_resume`, `has_metadata`, and `has_magnet`.
+
+`total` is the number of entries after `label` filtering. `offset` and `limit`
+apply after filtering and sorting. Name and folder sorting is case-insensitive.
+When `sort_by` is omitted, entries are grouped by archive name and then by info
+hash. The value `all` is reserved for listing every archive and does not refer
+to an archive named `all`.
+
+#### `view`
+
+| Key | Value Type | Description
+| :-- | :-- | :--
+| `archive` | string | archive name
+| `hash_string` | string | info hash of the archived torrent
+
+Returns a stored ZIP archive containing the entry's `.torrent` and `.resume`
+files that exist. `download` is accepted as an alias for `view`. If neither
+file exists, the request fails.
+
+Response parameters: `archive`, `hash_string`, `name`, `filename`, `size`,
+`count`, `files` (array of file names inside the bundle), and `data_base64`
+(base64-encoded bundle, limited to 32 MiB).
+
+#### `move`
+
+| Key | Value Type | Description
+| :-- | :-- | :--
+| `archive` | string | source archive name
+| `target_archive` | string | destination archive name
+| `hashes` | array | optional info hashes; all entries are moved when omitted
+| `overwrite` | boolean | replace existing entries in the target (default: false)
+
+Only archive metadata (`.torrent`, `.resume`, `.json`, `.magnet`) is moved;
+downloaded data stays where it is. Response parameters: `moved` (number of
+torrents actually moved) and `missing` (array of requested hashes that were
+not found in the source archive).
+
+#### `export`
+
+| Key | Value Type | Description
+| :-- | :-- | :--
+| `archive` | string | archive name
+| `hashes` | array | optional info hashes; all entries are exported when omitted
+| `path` | string | output file. Relative paths are resolved under the archive's `exports/` directory. Defaults to `exports/archive-<timestamp>.zip`
+| `overwrite` | boolean | replace an existing output file (default: false)
+| `inline` | boolean | also return the bundle as `data_base64` (default: false, limit 32 MiB)
+
+The bundle is a stored (uncompressed) ZIP with a `manifest.json` entry plus
+one entry per archive file. Entry comments identify the archive entry.
+Response parameters: `path`, `size`, `count`, `sha256`, and optionally
+`data_base64`.
+
+#### `import`
+
+| Key | Value Type | Description
+| :-- | :-- | :--
+| `path` | string | local bundle path to import. Relative paths are resolved under the archive's `exports/` directory
+| `data_base64` | string | base64-encoded bundle contents to upload. `metainfo` is accepted as an alias
+| `sha256` | string | optional expected SHA-256 of the uploaded bundle
+| `archive` | string | destination archive name
+| `overwrite` | boolean | replace existing entries (default: false)
+
+Specify either `path` or `data_base64`, not both. An uploaded bundle is written
+to a temporary file under `exports/` and removed after the import finishes. The
+upload is limited to the same maximum bundle size as a local import.
+
+Import validates the bundle manifest, entry names, local/central ZIP headers,
+per-file SHA-256 checksums, and the total extracted size. It only adds entries
+to the archive; it does not add torrents to the session. Response parameters:
+`imported` (number), `skipped` (number), and `hashes` (array). Uploaded imports
+also return `size` (number) and `sha256` (string) for the uploaded bundle.
+
+## 4  Session requests
+
+### 4.1 Session parameters
+
+| Key | Value Type | Description
+| :-- | :-- | :--
 | `alt_speed_down` | number | max global download speed (kB/s)
 | `alt_speed_enabled` | boolean | true means use the alt speeds
 | `alt_speed_time_begin` | number | when to turn on alt speeds (units: minutes after midnight)
@@ -583,22 +809,25 @@ Response parameters: `path`, `name`, and `id`, holding the torrent ID integer
 | `blocklist_enabled` | boolean | true means enabled
 | `blocklist_size` | number | number of rules in the blocklist
 | `blocklist_url` | string | location of the blocklist to use for `blocklist_update`
-| `cache_size_mib` | number |**DEPRECATED** This property will be removed in Transmission 5.0.0. Clients should stop using this property now.
+| `cache_size_mib` | number | **DEPRECATED** This property will be removed in Transmission 5.0.0. Clients should stop using this property now.
 | `config_dir` | string | location of transmission's configuration directory
 | `default_trackers` | string | announce URLs, one per line, and a blank line between [tiers](https://www.bittorrent.org/beps/bep_0012.html).
 | `dht_enabled` | boolean | true means allow DHT in public torrents
 | `download_dir` | string | default path to download torrents
-| `download_dir_free_space` | number |  **DEPRECATED** Use the `free_space` method instead.
+| `download_dir_free_space` | number | **DEPRECATED** Use the `free_space` method instead.
 | `download_queue_enabled` | boolean | if true, limit how many torrents can be downloaded at once
 | `download_queue_size` | number | max number of torrents to download at once (see `download_queue_enabled`)
 | `encryption` | string | `required`, `preferred`, `allowed`
+| `fork_features` | string[] | fork-specific capability identifiers. `min_free_space/v1` and `min_free_space_resume_margin/v1` mean this fork's minimum-free-space settings are available. `per_torrent_incomplete_dir/v1` means `incomplete_dir` can be set per torrent via `torrent_add`/`torrent_set` and is returned by `torrent_get`. `torrent_set_incomplete_dir/v1` means the `torrent_set_incomplete_dir` method is available to change the staging directory and optionally move existing data. `torrent_archive/v1` means the `torrent_archive` method is available. `torrent_archive_upload/v1` means `torrent_archive.import` accepts `data_base64`. `status/v2` means statuses `7` and `8` are available when the client opts in via the `X-Transmission-Client-Features` header.
 | `idle_seeding_limit` | number | torrents we're seeding will be stopped if they're idle for this long
 | `idle_seeding_limit_enabled` | boolean | true if the seeding inactivity limit is honored by default
 | `incomplete_dir` | string | path for incomplete torrents, when enabled
 | `incomplete_dir_enabled` | boolean | true means keep torrents in `incomplete_dir` until done
 | `lpd_enabled` | boolean | true means allow Local Peer Discovery in public torrents
+| `min_free_space` | string[] | minimum free space rules, one `path=size` entry per path. The rule with the longest matching path applies to a directory. Sizes accept binary suffixes (`K`, `M`, `G`, `T`), e.g. `"/share/Video=200G"`.
+| `min_free_space_resume_margin` | string | extra free space required above a limit before resuming torrents paused by that limit, e.g. `"64M"`
 | `peer_limit_global` | number | maximum global number of peers
-| `peer_limit_per_torrent` | number | maximum global number of peers
+| `peer_limit_per_torrent` | number | maximum number of peers per torrent
 | `peer_port_random_on_start` | boolean | true means pick a random peer port on launch
 | `peer_port` | number | port number
 | `pex_enabled` | boolean | true means allow PEX in public torrents
@@ -612,11 +841,11 @@ Response parameters: `path`, `name`, and `id`, holding the torrent ID integer
 | `rpc_version_semver` | string | the current RPC API version in a [semver](https://semver.org)-compatible string
 | `rpc_version` | number | **DEPRECATED** the current RPC API version
 | `script_torrent_added_enabled` | boolean | whether or not to call the `added` script
-| `script_torrent_added_filename` | string | filename of the script to run
+| `script_torrent_added_filename` | string | filename of the script to run, optionally followed by arguments
 | `script_torrent_done_enabled` | boolean | whether or not to call the `done` script
-| `script_torrent_done_filename` | string | filename of the script to run
+| `script_torrent_done_filename` | string | filename of the script to run, optionally followed by arguments
 | `script_torrent_done_seeding_enabled` | boolean | whether or not to call the `seeding_done` script
-| `script_torrent_done_seeding_filename` | string | filename of the script to run
+| `script_torrent_done_seeding_filename` | string | filename of the script to run, optionally followed by arguments
 | `seed_queue_enabled` | boolean | if true, limit how many torrents can be uploaded at once
 | `seed_queue_size` | number | max number of torrents to uploaded at once (see `seed_queue_enabled`)
 | `seed_ratio_limit` | double | the default seed ratio for torrents to use
@@ -634,19 +863,21 @@ Response parameters: `path`, `name`, and `id`, holding the torrent ID integer
 | `utp_enabled` | boolean | **DEPRECATED** Use `preferred_transports` instead
 | `version` | string | long version string `$version ($revision)`
 
+The `script_torrent_*_filename` settings are command lines: the executable path followed by optional arguments. Enclose the path and any argument containing spaces in double quotes. Arguments can reference the variables listed in [Scripts](Scripts.md) with `%NAME%` or `${NAME}`. The matching `script_torrent_*_enabled` key turns each script on or off.
 
 `units`: an object containing:
 
 | Key | Value Type | transmission.h source
-|:--|:--|:--
-| `speed_units`  | array  | 5 strings: B/s, kB/s, MB/s, GB/s, TB/s
-| `speed_bytes`  | number | number of bytes in a KB (1000 for kB; 1024 for KiB)
-| `size_units`   | array  | 5 strings: B, kB, MB, GB, TB
-| `size_bytes`   | number | number of bytes in a KB (1000 for kB; 1024 for KiB)
-| `memory_units` | array  | 5 strings: B, KiB, MiB, GiB, TiB
+| :-- | :-- | :--
+| `speed_units` | array | 5 strings: B/s, kB/s, MB/s, GB/s, TB/s
+| `speed_bytes` | number | number of bytes in a KB (1000 for kB; 1024 for KiB)
+| `size_units` | array | 5 strings: B, kB, MB, GB, TB
+| `size_bytes` | number | number of bytes in a KB (1000 for kB; 1024 for KiB)
+| `memory_units` | array | 5 strings: B, KiB, MiB, GiB, TiB
 | `memory_bytes` | number | number of bytes in a KB (1000 for kB; 1024 for KiB)
 
 #### 4.1.1 Mutators
+
 Method name: `session_set`
 
 Request parameters: the mutable properties from 4.1's parameters, i.e. all of them
@@ -665,6 +896,7 @@ except:
 Response parameters: none
 
 #### 4.1.2 Accessors
+
 Method name: `session_get`
 
 Request parameters: an optional `fields` array of keys (see 4.1)
@@ -673,6 +905,7 @@ Response parameters: key/value pairs matching the request's `fields`
 parameter if present, or all supported fields (see 4.1) otherwise.
 
 ### 4.2 Session statistics
+
 Method name: `session_stats`
 
 Request parameters: none
@@ -700,6 +933,7 @@ A stats object contains:
 | `session_count`    | number     | tr_session_stats
 
 ### 4.3 Blocklist
+
 Method name: `blocklist_update`
 
 Request parameters: none
@@ -707,6 +941,7 @@ Request parameters: none
 Response parameters: a number `blocklist_size`
 
 ### 4.4 Port checking
+
 This method tests to see if your incoming peer port is accessible
 from the outside world.
 
@@ -727,6 +962,7 @@ Response parameters:
 | `ip_protocol` | string | `ipv4` if the test was carried out on IPv4, `ipv6` if the test was carried out on IPv6, unset if it cannot be determined
 
 ### 4.5 Session shutdown
+
 This method tells the Transmission session to shut down.
 
 Method name: `session_close`
@@ -736,8 +972,9 @@ Request parameters: none
 Response parameters: none
 
 ### 4.6 Queue movement requests
+
 | Method name | transmission.h source
-|:--|:--
+| :-- | :--
 | `queue_move_top` | tr_torrentQueueMoveTop()
 | `queue_move_up` | tr_torrentQueueMoveUp()
 | `queue_move_down` | tr_torrentQueueMoveDown()
@@ -752,6 +989,7 @@ Request parameters:
 Response parameters: none
 
 ### 4.7 Free space
+
 This method tests how much free space is available in a
 client-specified folder.
 
@@ -766,20 +1004,22 @@ Request parameters:
 Response parameters:
 
 | Key | Value type | Description
-|:--|:--|:--
+| :-- | :-- | :--
 | `path` | string | same as the Request parameter
 | `size_bytes` | number | the size, in bytes, of the free space in that directory
 | `total_size` | number | the total capacity, in bytes, of that directory
 
 ### 4.8 Bandwidth groups
+
 #### 4.8.1 Bandwidth group mutator: `group_set`
+
 Method name: `group_set`
 
 Request parameters:
 
 | Key | Value type | Description
-|:--|:--|:--
-| `honors_session_limits` | boolean  | true if session upload limits are honored
+| :-- | :-- | :--
+| `honors_session_limits` | boolean | true if session upload limits are honored
 | `name` | string | Bandwidth group name
 | `speed_limit_down` | integer | max global download speed (kB/s)
 | `speed_limit_down_enabled` | boolean | true means enabled
@@ -789,6 +1029,7 @@ Request parameters:
 Response parameters: none
 
 #### 4.8.2 Bandwidth group accessor: `group_get`
+
 Method name: `group_get`
 
 Request parameters: An optional parameter `name`.
@@ -805,8 +1046,8 @@ Response parameters:
 A bandwidth group description object has:
 
 | Key | Value type | Description
-|:--|:--|:--
-| `honors_session_limits` | boolean  | true if session upload limits are honored
+| :-- | :-- | :--
+| `honors_session_limits` | boolean | true if session upload limits are honored
 | `name` | string | Bandwidth group name
 | `speed_limit_down` | integer | max global download speed (kB/s)
 | `speed_limit_down_enabled` | boolean | true means enabled
@@ -814,6 +1055,7 @@ A bandwidth group description object has:
 | `speed_limit_up_enabled` | boolean | true means enabled
 
 ## 5 Protocol versions
+
 This section lists the changes that have been made to the RPC protocol.
 
 There are two ways to check for API compatibility. Since most developers know
@@ -868,7 +1110,7 @@ Transmission 1.50 (`rpc-version-semver` 1.3.0, `rpc-version`: 4)
 Transmission 1.60 (`rpc-version-semver` 2.0.0, `rpc-version`: 5)
 
 | Method | Description
-|:---|:---
+| :--- | :---
 | `session-get` | :bomb: renamed `peer-limit` to `peer-limit-global`
 | `session-get` | :bomb: renamed `pex-allowed` to `pex-enabled`
 | `session-get` | :bomb: renamed `port` to `peer-port`
@@ -920,7 +1162,7 @@ Transmission 1.70 (`rpc-version-semver` 2.1.0, `rpc-version`: 6)
 Transmission 1.80 (`rpc-version-semver` 3.0.0, `rpc-version`: 7)
 
 | Method | Description
-|:---|:---
+| :--- | :---
 | `torrent-get` | :bomb: removed arg `announceResponse` (use `trackerStats instead`)
 | `torrent-get` | :bomb: removed arg `announceURL` (use `trackerStats instead`)
 | `torrent-get` | :bomb: removed arg `downloaders` (use `trackerStats instead`)
@@ -943,7 +1185,7 @@ Transmission 1.80 (`rpc-version-semver` 3.0.0, `rpc-version`: 7)
 Transmission 1.90 (`rpc-version-semver` 3.1.0, `rpc-version`: 8)
 
 | Method | Description
-|:---|:---
+| :--- | :---
 | `session-set` | new arg `rename-partial-files`
 | `session-get` | new arg `rename-partial-files`
 | `session-get` | new arg `config-dir`
@@ -961,7 +1203,7 @@ Note: `rpc-version` was not bumped in this release due to an oversight.
 Transmission 2.00 (`rpc-version-semver` 3.3.0, `rpc-version`: 9)
 
 | Method | Description
-|:---|:---
+| :--- | :---
 | `session-set` | new arg `start-added-torrents`
 | `session-set` | new arg `trash-original-torrent-files`
 | `session-get` | new arg `start-added-torrents`
@@ -971,7 +1213,7 @@ Transmission 2.00 (`rpc-version-semver` 3.3.0, `rpc-version`: 9)
 Transmission 2.10 (`rpc-version-semver` 3.4.0, `rpc-version`: 10)
 
 | Method | Description
-|:---|:---
+| :--- | :---
 | `session-get` | new arg `cache-size-mb`
 | `session-get` | new arg `units`
 | `session-set` | new arg `idle-seeding-limit-enabled`
@@ -999,7 +1241,7 @@ Transmission 2.20 (`rpc-version-semver` 3.6.0, `rpc-version`: 12)
 Transmission 2.30 (`rpc-version-semver` 4.0.0, `rpc-version`: 13)
 
 | Method | Description
-|:---|:---
+| :--- | :---
 | `torrent-get` | :bomb: removed arg `peersKnown`
 | `torrent-get` | new arg `isUTP` to the `peers` list
 | `torrent-add` | new arg `cookies`
@@ -1007,7 +1249,7 @@ Transmission 2.30 (`rpc-version-semver` 4.0.0, `rpc-version`: 13)
 Transmission 2.40 (`rpc-version-semver` 5.0.0, `rpc-version`: 14)
 
 | Method | Description
-|:---|:---
+| :--- | :---
 | `torrent-get` | :bomb: values of `status` field changed
 | `queue-move-bottom` | new method
 | `queue-move-down` | new method
@@ -1036,7 +1278,7 @@ Transmission 2.80 (`rpc-version-semver` 5.1.0, `rpc-version`: 15)
 Transmission 3.00 (`rpc-version-semver` 5.2.0, `rpc-version`: 16)
 
 | Method | Description
-|:---|:---
+| :--- | :---
 | `session-get` | new request arg `fields`
 | `session-get` | new arg `session-id`
 | `torrent-get` | new arg `labels`
@@ -1047,7 +1289,7 @@ Transmission 3.00 (`rpc-version-semver` 5.2.0, `rpc-version`: 16)
 Transmission 4.0.0 (`rpc-version-semver` 5.3.0, `rpc-version`: 17)
 
 | Method | Description
-|:---|:---
+| :--- | :---
 | `/upload` | :warning: undocumented `/upload` endpoint removed
 | `session-get` | :warning: **DEPRECATED** `download-dir-free-space`. Use `free-space` instead.
 | `free-space` | new return arg `total_size`
@@ -1081,7 +1323,7 @@ Transmission 4.1.0 (`rpc_version_semver` 6.0.0, `rpc_version`: 18)
 :bomb: switch to snake_case for all strings
 
 | Method | Description
-|:---|:---
+| :--- | :---
 | `session_get` | new arg `sequential_download`
 | `session_set` | new arg `sequential_download`
 | `torrent_add` | new arg `sequential_download`
@@ -1111,7 +1353,7 @@ Transmission 4.1.0 (`rpc_version_semver` 6.0.0, `rpc_version`: 18)
 Transmission 4.1.1 (`rpc_version_semver` 6.0.1, `rpc_version`: 19)
 
 | Method | Description
-|:---|:---
+| :--- | :---
 | `session_get` | `speed_limit_down` reverted to return an integer
 | `session_get` | `speed_limit_up` reverted to return an integer
 | `group_get` | `speed_limit_down` reverted to return an integer
@@ -1120,9 +1362,30 @@ Transmission 4.1.1 (`rpc_version_semver` 6.0.1, `rpc_version`: 19)
 Transmission 4.2.0 (`rpc_version_semver` 6.1.0, `rpc_version`: ?)
 
 | Method | Description
-|:---|:---
+| :--- | :---
 | `torrent_get` | new arg `peers.supports_holepunch`
 | `torrent_get` | new arg `peers_from.from_holepunch`
+| `session_get` | new arg `fork_features`
+| `session_get` | new arg `min_free_space`
+| `session_set` | new arg `min_free_space`
+| `session_get` | new arg `min_free_space_resume_margin`
+| `session_set` | new arg `min_free_space_resume_margin`
+| `session_get` | `fork_features` includes `per_torrent_incomplete_dir/v1`
+| `torrent_add` | new arg `incomplete_dir` (fork extension)
+| `torrent_set` | new arg `incomplete_dir` (fork extension)
+| `torrent_get` | new arg `incomplete_dir` (fork extension)
+| `torrent_set_incomplete_dir` | new method (fork extension)
+| `torrent_archive` | new method (fork extension)
+| `torrent_archive` | new actions `create_archive` and `delete_archive` (fork extension)
+| `torrent_archive` | new action `list_archives` (fork extension)
+| `torrent_archive` | `restore` accepts optional `verify` (fork extension)
+| `torrent_archive` | `restore` accepts `items` for batch restore from multiple archives (fork extension)
+| `torrent_archive` | `list` accepts omitted or `all` archive to list every archive (fork extension)
+| `torrent_archive` | `list` accepts optional `sort_by`, `sort_order`, and `label` (fork extension)
+| `torrent_archive` | new action `delete` removes one archive entry (fork extension)
+| `torrent_archive` | new action `view` returns a `.torrent`/`.resume` bundle; `download` is an alias (fork extension)
+| `torrent_archive` | `import` accepts `data_base64` and optional `sha256` (fork extension)
+| `session_get` | `fork_features` includes `torrent_archive/v1` and `torrent_archive_upload/v1`
 | `torrent_get` | new arg `webseeds_ex`
 | `torrent_get` | **DEPRECATED** `webseeds`. Use `webseeds_ex` instead.
 | `session_get` | **DEPRECATED** `cache_size_mib`. The memory cache is being removed, making this setting moot. The setting will still be gettable and settable via RPC `session_get` and `session_set` until Transmission 5.0.0 to avoid client breakage, but it will be otherwise unused in libtransmission. Clients should stop using this key.

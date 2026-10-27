@@ -90,6 +90,10 @@ public:
         // IP protocol to use when making the request
         IPProtocol ip_proto = IPProtocol::ANY;
 
+        // If true, resolve the host first and fail without making a request
+        // when every resolved address is unspecified (0.0.0.0 or ::).
+        bool check_dns = false;
+
         static auto constexpr DefaultTimeoutSecs = std::chrono::seconds{ 120 };
     };
 

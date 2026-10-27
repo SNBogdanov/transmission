@@ -239,8 +239,10 @@ bool tr_sys_dir_create(std::string_view path, int flags, [[maybe_unused]] int pe
             std::filesystem::permissions(target, final_perms, std::filesystem::perm_options::replace, perm_ec);
             if (perm_ec)
             {
-                maybe_set_error(error, perm_ec);
-                return false;
+                // Filesystems such as CIFS/SMB may not support chmod. The
+                // directory was created successfully, so permissions are
+                // best-effort and must not fail the whole operation.
+                return true;
             }
 
             return true;

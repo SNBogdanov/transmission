@@ -28,6 +28,10 @@ target_sources(${TR_NAME}
         announcer-udp.cc
         announcer.cc
         announcer.h
+        archive-bundle.cc
+        archive-bundle.h
+        archive.cc
+        archive.h
         local-data.cc
         local-data.h
         api-compat.cc
@@ -86,6 +90,8 @@ target_sources(${TR_NAME}
         makemeta.cc
         makemeta.h
         mime-types.h
+        min-free-space.cc
+        min-free-space.h
         net.cc
         net.h
         open-files.cc

@@ -33,6 +33,7 @@
 #include "libtransmission/interned-string.h"
 #include "libtransmission/log.h"
 #include "libtransmission/session.h"
+#include "libtransmission/subprocess.h"
 #include "libtransmission/torrent-files.h"
 #include "libtransmission/torrent-magnet.h"
 #include "libtransmission/torrent-metainfo.h"
@@ -179,7 +180,15 @@ struct tr_torrent
     {
     }
 
-    void set_location(std::string_view location, bool move_from_old_path, int volatile* setme_state);
+    void set_location(
+        std::string_view location,
+        bool move_from_old_path,
+        int volatile* setme_state,
+        std::string_view source_dir = {});
+
+    // per-torrent staging directory used while the torrent is incomplete
+    void set_incomplete_dir(std::string_view dir);
+    void set_incomplete_dir(std::string_view dir, bool move_data, int volatile* setme_state);
 
     void rename_path(std::string_view oldpath, std::string_view newname, tr_torrent_rename_done_func&& callback);
 
@@ -196,6 +205,9 @@ struct tr_torrent
     }
 
     void save_resume_file();
+
+    // Stops the torrent and writes its resume file even if it was not dirty.
+    void stop_and_save_resume();
 
     [[nodiscard]] constexpr auto started_recently(time_t const now, time_t recent_secs = 120) const noexcept
     {
@@ -458,6 +470,11 @@ struct tr_torrent
         return incomplete_dir_;
     }
 
+    [[nodiscard]] constexpr time_t date_added() const noexcept
+    {
+        return date_added_;
+    }
+
     /// METAINFO
 
     [[nodiscard]] constexpr auto const& metainfo() const noexcept
@@ -495,6 +512,12 @@ struct tr_torrent
     [[nodiscard]] std::optional<tr_torrent_files::FoundFile> find_file(tr_file_index_t file_index) const;
 
     [[nodiscard]] bool has_any_local_data() const;
+
+    // true if at least one wanted, non-empty file is present under `dir`
+    [[nodiscard]] bool has_wanted_files_in(std::string_view dir) const;
+
+    // true if every wanted, non-empty file is present under `dir`
+    [[nodiscard]] bool all_wanted_files_in(std::string_view dir) const;
 
     /// METAINFO - TRACKERS
 
@@ -628,7 +651,12 @@ struct tr_torrent
 
     /// METAINFO - PIECE CHECKSUMS
 
-    [[nodiscard]] bool ensure_piece_is_checked(tr_piece_index_t piece);
+    [[nodiscard]] constexpr bool is_piece_checked(tr_piece_index_t piece) const
+    {
+        return checked_pieces_.test(piece);
+    }
+
+    void set_piece_is_checked(tr_piece_index_t piece, bool passed);
 
     /// METAINFO - MAGNET
 
@@ -732,6 +760,16 @@ struct tr_torrent
             return TR_STATUS_CHECK_WAIT;
         }
 
+        if (pending_move_)
+        {
+            return TR_STATUS_PENDING_MOVE;
+        }
+
+        if (space_paused_)
+        {
+            return TR_STATUS_SPACE_PAUSED;
+        }
+
         if (is_running())
         {
             return is_done() ? TR_STATUS_SEED : TR_STATUS_DOWNLOAD;
@@ -797,6 +835,36 @@ struct tr_torrent
     {
         return is_running_;
     }
+
+    [[nodiscard]] constexpr bool is_space_paused() const noexcept
+    {
+        return space_paused_;
+    }
+
+    [[nodiscard]] constexpr bool is_pending_move() const noexcept
+    {
+        return pending_move_;
+    }
+
+    [[nodiscard]] constexpr auto pending_move_bytes() const noexcept
+    {
+        return pending_move_bytes_;
+    }
+
+    constexpr void set_pending_move(bool pending, uint64_t bytes = 0) noexcept
+    {
+        pending_move_ = pending;
+        pending_move_bytes_ = pending ? bytes : 0;
+    }
+
+    void pause_for_space();
+    void resume_after_space();
+    void resume_pending_move();
+
+    bool call_script_if_enabled(TrScript type, tr_spawn_callback on_exit = {});
+
+    // Sum of the bytes actually allocated on disk for this torrent's files.
+    [[nodiscard]] uint64_t size_on_disk(std::string_view dir = {}) const;
 
     [[nodiscard]] constexpr auto is_stopping() const noexcept
     {
@@ -1044,6 +1112,7 @@ struct tr_torrent
     time_t lpdAnnounceAt = 0;
 
 private:
+    friend struct tr_session;
     friend bool tr_torrentSetMetainfoFromFile(tr_torrent* tor, tr_torrent_metainfo const* metainfo, char const* filename);
     friend tr_file_view tr_torrentFile(tr_torrent const* tor, tr_file_index_t file);
     friend tr_stat tr_torrentStat(tr_torrent* tor);
@@ -1186,13 +1255,6 @@ private:
 
         return n_secs;
     }
-
-    [[nodiscard]] constexpr bool is_piece_checked(tr_piece_index_t piece) const
-    {
-        return checked_pieces_.test(piece);
-    }
-
-    [[nodiscard]] bool check_piece(tr_piece_index_t piece) const;
 
     [[nodiscard]] constexpr std::optional<uint16_t> effective_idle_limit_minutes() const noexcept
     {
@@ -1337,8 +1399,6 @@ private:
 
     void update_file_path(tr_file_index_t file, std::optional<bool> has_file) const;
 
-    void set_location_in_session_thread(std::string_view path, bool move_from_old_path, int volatile* setme_state);
-
     void rename_path_in_session_thread(
         std::string_view oldpath,
         std::string_view newname,
@@ -1442,6 +1502,12 @@ private:
     bool is_queued_ = false;
     bool is_running_ = false;
     bool is_stopping_ = false;
+    bool space_paused_ = false;
+    bool pending_move_ = false;
+
+    uint64_t pending_move_bytes_ = 0;
+
+    bool script_on_done_pending_ = false;
 
     bool finished_seeding_by_idle_ = false;
 

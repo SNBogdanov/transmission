@@ -15,16 +15,20 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef> // size_t
+#include <deque>
 #include <cstdint> // uintX_t
 #include <ctime> // time_t
 #include <future>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <shared_mutex>
 #include <span>
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <unordered_set>
 #include <utility> // for std::pair
 #include <vector>
 
@@ -46,6 +50,7 @@
 #include "libtransmission/interned-string.h"
 #include "libtransmission/ip-cache.h"
 #include "libtransmission/local-data.h"
+#include "libtransmission/min-free-space.h"
 #include "libtransmission/net.h" // for tr_port, tr_tos_t
 #include "libtransmission/open-files.h"
 #include "libtransmission/platform.h"
@@ -83,6 +88,13 @@ namespace tr::test
 class SessionTest;
 
 } // namespace tr::test
+
+namespace tr::archive
+{
+
+class Cache;
+
+} // namespace tr::archive
 
 /** @brief handle to an active libtransmission session */
 struct tr_session
@@ -485,6 +497,26 @@ public:
         return resume_dir_;
     }
 
+    [[nodiscard]] constexpr auto const& archiveDir() const noexcept
+    {
+        return archive_dir_;
+    }
+
+    [[nodiscard]] constexpr auto const& archiveExportsDir() const noexcept
+    {
+        return archive_exports_dir_;
+    }
+
+    [[nodiscard]] auto& archiveMutex() noexcept
+    {
+        return archive_mutex_;
+    }
+
+    [[nodiscard]] auto& archiveCache() noexcept
+    {
+        return archive_cache_;
+    }
+
     [[nodiscard]] constexpr auto torrentsLoadedTime() const noexcept
     {
         return torrents_loaded_time_;
@@ -541,6 +573,115 @@ public:
     {
         settings_.incomplete_dir_enabled = enabled;
     }
+
+    // minimum free space limits, keyed by directory path
+
+    [[nodiscard]] constexpr auto const& minFreeSpaceSpecs() const noexcept
+    {
+        return settings().min_free_space;
+    }
+
+    [[nodiscard]] constexpr bool moveCompletedTorrentsEnabled() const noexcept
+    {
+        return settings_.move_completed_torrents_enabled;
+    }
+
+    constexpr void setMoveCompletedTorrentsEnabled(bool const enabled) noexcept
+    {
+        settings_.move_completed_torrents_enabled = enabled;
+    }
+
+    [[nodiscard]] constexpr bool movePartialFilesEnabled() const noexcept
+    {
+        return settings_.move_partial_files_enabled;
+    }
+
+    constexpr void setMovePartialFilesEnabled(bool const enabled) noexcept
+    {
+        settings_.move_partial_files_enabled = enabled;
+    }
+
+    [[nodiscard]] constexpr bool scriptTorrentDoneRemoveTorrentEnabled() const noexcept
+    {
+        return settings_.script_torrent_done_remove_torrent_enabled;
+    }
+
+    constexpr void setScriptTorrentDoneRemoveTorrentEnabled(bool const enabled) noexcept
+    {
+        settings_.script_torrent_done_remove_torrent_enabled = enabled;
+    }
+
+    [[nodiscard]] constexpr bool scriptTorrentDoneRemoveTempFilesEnabled() const noexcept
+    {
+        return settings_.script_torrent_done_remove_temp_files_enabled;
+    }
+
+    constexpr void setScriptTorrentDoneRemoveTempFilesEnabled(bool const enabled) noexcept
+    {
+        settings_.script_torrent_done_remove_temp_files_enabled = enabled;
+    }
+
+    [[nodiscard]] constexpr bool scriptTorrentDoneRemoveAllFilesEnabled() const noexcept
+    {
+        return settings_.script_torrent_done_remove_all_files_enabled;
+    }
+
+    constexpr void setScriptTorrentDoneRemoveAllFilesEnabled(bool const enabled) noexcept
+    {
+        settings_.script_torrent_done_remove_all_files_enabled = enabled;
+    }
+
+    [[nodiscard]] constexpr bool forceFinishPartialFilesEnabled() const noexcept
+    {
+        return settings_.force_finish_partial_files_enabled;
+    }
+
+    constexpr void setForceFinishPartialFilesEnabled(bool const enabled) noexcept
+    {
+        settings_.force_finish_partial_files_enabled = enabled;
+    }
+
+    [[nodiscard]] constexpr auto const& minFreeSpaceResumeMarginSpec() const noexcept
+    {
+        return settings().min_free_space_resume_margin;
+    }
+
+    void setMinFreeSpace(std::vector<std::string> specs);
+    void setMinFreeSpaceResumeMargin(std::string_view spec);
+
+    [[nodiscard]] std::optional<uint64_t> minFreeSpaceFor(std::string_view dir) const;
+
+    // free bytes in `dir`, minus reservations for in-flight torrent moves
+    [[nodiscard]] uint64_t freeSpaceFor(std::string_view dir) const;
+
+    [[nodiscard]] bool wouldViolateMinFreeSpace(tr_torrent const* tor) const;
+
+    struct MoveDirInfo
+    {
+        uint64_t available = 0;
+        uint64_t filesystem_id = 0;
+    };
+
+    using MoveDirCache = std::map<std::string, MoveDirInfo>;
+
+    // Called when a torrent finishes: move it from the incomplete dir to its
+    // download dir if doing so keeps the target above its limit.
+    bool tryScheduleMoveToDownloadDir(tr_torrent* tor, MoveDirCache* cache = nullptr);
+
+    // Check whether a completed torrent's data can be moved to its target
+    // without violating the target's min-free-space. Keeps the torrent
+    // pending for retry when there is not enough space yet.
+    bool targetHasSpaceForDoneScript(tr_torrent* tor, MoveDirCache* cache = nullptr);
+
+    void releaseMoveReservation(tr_torrent_id_t tor_id);
+
+    // Called once per second from the session timer.
+    void updateFreeSpaceLimits();
+
+    // Queue a torrent's completion (move to download dir + done script) so
+    // that only one torrent at a time is moved/scripted.
+    void enqueueDoneAction(tr_torrent_id_t tor_id);
+    void onDoneMoveFinished(tr_torrent_id_t tor_id, bool move_ok);
 
     // scripts
 
@@ -652,9 +793,6 @@ public:
     {
         return open_files_;
     }
-
-    void close_torrent_files(tr_torrent_id_t tor_id) noexcept;
-    void close_torrent_file(tr_torrent const& tor, tr_file_index_t file_num) noexcept;
 
     // announce ip
 
@@ -1098,6 +1236,7 @@ private:
     void initImpl(init_data& data);
     void setSettings(tr_variant const& settings_map, bool force);
     void setSettings(Settings&& settings, bool force);
+    void reloadMinFreeSpace();
 
     void closeImplPart1(std::promise<void>* closed_promise, std::chrono::time_point<std::chrono::steady_clock> deadline);
     void closeImplPart2(std::promise<void>* closed_promise, std::chrono::time_point<std::chrono::steady_clock> deadline);
@@ -1212,6 +1351,8 @@ private:
 
     std::string const resume_dir_;
     std::string const torrent_dir_;
+    std::string const archive_dir_;
+    std::string const archive_exports_dir_;
     std::string const blocklist_dir_;
 
     std::unique_ptr<tr_session_thread> const session_thread_;
@@ -1222,6 +1363,22 @@ private:
     /// trivial type fields
 
     Settings settings_;
+
+    std::vector<tr_min_free_space_rule> min_free_space_rules_;
+    uint64_t min_free_space_resume_margin_bytes_ = 64U * 1024U * 1024U;
+
+    // torrent id -> {filesystem id, reserved bytes}
+    std::map<tr_torrent_id_t, std::pair<uint64_t, uint64_t>> move_reservations_;
+
+    std::deque<tr_torrent_id_t> done_action_queue_;
+    std::unordered_set<tr_torrent_id_t> done_action_queued_;
+    bool done_action_active_ = false;
+
+    void processDoneActionQueue();
+    void onDoneActionFinished();
+    void onDoneScriptFinished(tr_torrent_id_t tor_id, int exit_status);
+
+    mutable std::mutex free_space_mutex_;
 
     tr_session_queue_start_func queue_start_callback_ = nullptr;
 
@@ -1255,6 +1412,10 @@ private:
     /// but are self-contained / don't hold references to others
 
     mutable std::recursive_mutex session_mutex_;
+
+    mutable std::shared_mutex archive_mutex_;
+
+    std::shared_ptr<tr::archive::Cache> archive_cache_;
 
     tr_stats session_stats_{ config_dir_, time(nullptr) };
 

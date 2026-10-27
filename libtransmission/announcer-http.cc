@@ -115,6 +115,12 @@ bool handleAnnounceResponse(tr_web::FetchResponse const& web_response, tr_announ
     response.did_timeout = did_timeout;
     tr_logAddTrace("Got announce response", log_name);
 
+    if (status == 0 && (primary_ip == "0.0.0.0" || primary_ip == "::"))
+    {
+        response.errmsg = fmt::format("Couldn't resolve hostname: DNS returned {}", primary_ip);
+        return false;
+    }
+
     if (status != HTTP_OK)
     {
         auto const* const response_str = tr_webGetResponseStr(status);
@@ -282,6 +288,7 @@ void tr_tracker_http_announce(
     options.timeout_secs = TrAnnounceTimeoutSec;
     options.sndbuf = 4096;
     options.rcvbuf = 4096;
+    options.check_dns = true;
 
     auto do_make_request = [&](std::string_view const& protocol_name, tr_web::FetchOptions&& opt)
     {
@@ -559,6 +566,8 @@ void tr_tracker_http_scrape(tr_session const* session, tr_scrape_request const& 
     options.timeout_secs = TrScrapeTimeoutSec;
     options.sndbuf = 4096;
     options.rcvbuf = 4096;
+    options.check_dns = true;
+
     session->fetch(std::move(options));
 }
 

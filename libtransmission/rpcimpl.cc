@@ -29,6 +29,8 @@
 #include "libtransmission/transmission.h"
 
 #include "libtransmission/announcer.h"
+#include "libtransmission/archive.h"
+#include "libtransmission/archive-bundle.h"
 #include "libtransmission/crypto-utils.h"
 #include "libtransmission/error.h"
 #include "libtransmission/file-utils.h"
@@ -186,6 +188,27 @@ namespace
 
 namespace
 {
+thread_local tr_rpc_client_features tr_rpc_client_features_current;
+
+struct ClientFeaturesGuard
+{
+    explicit ClientFeaturesGuard(tr_rpc_client_features features) noexcept
+        : prev_{ tr_rpc_client_features_current }
+    {
+        tr_rpc_client_features_current = features;
+    }
+
+    ~ClientFeaturesGuard()
+    {
+        tr_rpc_client_features_current = prev_;
+    }
+
+    ClientFeaturesGuard(ClientFeaturesGuard const&) = delete;
+    ClientFeaturesGuard& operator=(ClientFeaturesGuard const&) = delete;
+
+    tr_rpc_client_features prev_;
+};
+
 auto constexpr RecentlyActiveSeconds = time_t{ 60 };
 auto constexpr RpcVersion = int64_t{ 18 }; // TODO: 18 == 6.0.0, bump after all 6.0.x releases and before releasing 6.1.0
 auto constexpr RpcVersionMin = int64_t{ 14 };
@@ -739,6 +762,7 @@ namespace make_torrent_field_helpers
     case TR_KEY_have_valid:
     case TR_KEY_honors_session_limits:
     case TR_KEY_id:
+    case TR_KEY_incomplete_dir:
     case TR_KEY_is_finished:
     case TR_KEY_is_private:
     case TR_KEY_is_stalled:
@@ -860,6 +884,8 @@ namespace make_torrent_field_helpers
         return st.have_unchecked;
     case TR_KEY_have_valid:
         return st.have_valid;
+    case TR_KEY_incomplete_dir:
+        return std::string{ tor.incomplete_dir().sv() };
     case TR_KEY_honors_session_limits:
         return tor.uses_session_limits();
     case TR_KEY_id:
@@ -941,7 +967,22 @@ namespace make_torrent_field_helpers
     case TR_KEY_start_date:
         return st.start_date;
     case TR_KEY_status:
-        return st.activity;
+        {
+            auto status = st.activity;
+            if (!tr_rpc_client_features_current.status_v2)
+            {
+                if (status == TR_STATUS_SPACE_PAUSED)
+                {
+                    status = TR_STATUS_STOPPED;
+                }
+                else if (status == TR_STATUS_PENDING_MOVE)
+                {
+                    status = TR_STATUS_SEED;
+                }
+            }
+
+            return status;
+        }
     case TR_KEY_torrent_file:
         return tor.torrent_file();
     case TR_KEY_total_size:
@@ -1295,6 +1336,19 @@ namespace make_torrent_field_helpers
             tor->set_bandwidth_group(*val);
         }
 
+        if (auto const val = args_in.value_if<std::string_view>(TR_KEY_incomplete_dir); val && err == Error::SUCCESS)
+        {
+            if (tr_sys_path_is_relative(*val))
+            {
+                err = Error::PATH_NOT_ABSOLUTE;
+                errmsg = "incomplete directory path is not absolute";
+            }
+            else
+            {
+                tor->set_incomplete_dir(*val);
+            }
+        }
+
         if (auto const* val = args_in.find_if<tr_variant::Vector>(TR_KEY_labels); val != nullptr && err == Error::SUCCESS)
         {
             std::tie(err, errmsg) = set_labels(tor, *val);
@@ -1446,6 +1500,34 @@ namespace make_torrent_field_helpers
     {
         tor->set_location(*location, move_flag, nullptr);
         session->rpcNotify(TR_RPC_TORRENT_MOVED, tor->id());
+    }
+
+    return { Error::SUCCESS, std::string{} };
+}
+
+[[nodiscard]] std::pair<JsonRpc::Error::Code, std::string> torrentSetIncompleteDir(
+    tr_session* session,
+    tr_variant::Map const& args_in,
+    tr_variant::Map& /*args_out*/)
+{
+    using namespace JsonRpc;
+
+    auto const incomplete_dir = args_in.value_if<std::string_view>(TR_KEY_incomplete_dir);
+    if (!incomplete_dir)
+    {
+        return { Error::INVALID_PARAMS, "no incomplete_dir"s };
+    }
+
+    if (tr_sys_path_is_relative(*incomplete_dir))
+    {
+        return { Error::PATH_NOT_ABSOLUTE, "incomplete directory path is not absolute"s };
+    }
+
+    auto const move_flag = args_in.value_if<bool>(TR_KEY_move).value_or(false);
+    for (auto* tor : getTorrents(session, args_in))
+    {
+        tor->set_incomplete_dir(*incomplete_dir, move_flag, nullptr);
+        session->rpcNotify(TR_RPC_TORRENT_CHANGED, tor->id());
     }
 
     return { Error::SUCCESS, std::string{} };
@@ -1785,6 +1867,13 @@ void torrentAdd(tr_session* session, tr_variant::Map const& args_in, tr_rpc_idle
         return;
     }
 
+    auto const incomplete_dir = args_in.value_if<std::string_view>(TR_KEY_incomplete_dir);
+    if (incomplete_dir && tr_sys_path_is_relative(*incomplete_dir))
+    {
+        tr_rpc_idle_done(idle_data, Error::PATH_NOT_ABSOLUTE, "incomplete directory path is not absolute"sv);
+        return;
+    }
+
     auto ctor = tr_ctor{ session };
 
     // set the optional parameters
@@ -1794,6 +1883,11 @@ void torrentAdd(tr_session* session, tr_variant::Map const& args_in, tr_rpc_idle
     if (download_dir && !std::empty(*download_dir))
     {
         ctor.set_download_dir(TR_FORCE, *download_dir);
+    }
+
+    if (incomplete_dir && !std::empty(*incomplete_dir))
+    {
+        ctor.set_incomplete_dir(*incomplete_dir);
     }
 
     if (auto const val = args_in.value_if<bool>(TR_KEY_paused))
@@ -2076,7 +2170,7 @@ using SessionAccessors = std::pair<SessionGetter, SessionSetter>;
 
 [[nodiscard]] auto& session_accessors()
 {
-    static auto map = small::max_size_map<tr_quark, SessionAccessors, 64U>{};
+    static auto map = small::max_size_map<tr_quark, SessionAccessors, 80U>{};
 
     if (!std::empty(map))
     {
@@ -2675,6 +2769,133 @@ using SessionAccessors = std::pair<SessionGetter, SessionSetter>;
             });
     }
 
+    map.try_emplace(
+        TR_KEY_min_free_space,
+        [](tr_session const& src) -> tr_variant
+        {
+            auto vec = tr_variant::Vector{};
+            vec.reserve(std::size(src.minFreeSpaceSpecs()));
+            for (auto const& spec : src.minFreeSpaceSpecs())
+            {
+                vec.emplace_back(std::string_view{ spec });
+            }
+            return tr_variant{ std::move(vec) };
+        },
+        [](tr_session& tgt, tr_variant const& src, ErrorInfo& /*err*/)
+        {
+            auto specs = std::vector<std::string>{};
+            if (auto const* vec = src.get_if<tr_variant::Vector>(); vec != nullptr)
+            {
+                specs.reserve(std::size(*vec));
+                for (auto const& item : *vec)
+                {
+                    if (auto const spec = item.value_if<std::string_view>(); spec)
+                    {
+                        specs.emplace_back(*spec);
+                    }
+                }
+            }
+            tgt.setMinFreeSpace(std::move(specs));
+        });
+
+    map.try_emplace(
+        TR_KEY_min_free_space_resume_margin,
+        [](tr_session const& src) -> tr_variant
+        { return tr_variant{ std::string_view{ src.minFreeSpaceResumeMarginSpec() } }; },
+        [](tr_session& tgt, tr_variant const& src, ErrorInfo& /*err*/)
+        {
+            if (auto const spec = src.value_if<std::string_view>(); spec)
+            {
+                tgt.setMinFreeSpaceResumeMargin(*spec);
+            }
+        });
+
+    map.try_emplace(
+        TR_KEY_move_completed_torrents_enabled,
+        [](tr_session const& src) -> tr_variant { return src.moveCompletedTorrentsEnabled(); },
+        [](tr_session& tgt, tr_variant const& src, ErrorInfo& /*err*/)
+        {
+            if (auto const val = src.value_if<bool>())
+            {
+                tgt.setMoveCompletedTorrentsEnabled(*val);
+            }
+        });
+
+    map.try_emplace(
+        TR_KEY_move_partial_files_enabled,
+        [](tr_session const& src) -> tr_variant { return src.movePartialFilesEnabled(); },
+        [](tr_session& tgt, tr_variant const& src, ErrorInfo& /*err*/)
+        {
+            if (auto const val = src.value_if<bool>())
+            {
+                tgt.setMovePartialFilesEnabled(*val);
+            }
+        });
+
+    map.try_emplace(
+        TR_KEY_script_torrent_done_remove_torrent_enabled,
+        [](tr_session const& src) -> tr_variant { return src.scriptTorrentDoneRemoveTorrentEnabled(); },
+        [](tr_session& tgt, tr_variant const& src, ErrorInfo& /*err*/)
+        {
+            if (auto const val = src.value_if<bool>())
+            {
+                tgt.setScriptTorrentDoneRemoveTorrentEnabled(*val);
+            }
+        });
+
+    map.try_emplace(
+        TR_KEY_script_torrent_done_remove_temp_files_enabled,
+        [](tr_session const& src) -> tr_variant { return src.scriptTorrentDoneRemoveTempFilesEnabled(); },
+        [](tr_session& tgt, tr_variant const& src, ErrorInfo& /*err*/)
+        {
+            if (auto const val = src.value_if<bool>())
+            {
+                tgt.setScriptTorrentDoneRemoveTempFilesEnabled(*val);
+            }
+        });
+
+    map.try_emplace(
+        TR_KEY_script_torrent_done_remove_all_files_enabled,
+        [](tr_session const& src) -> tr_variant { return src.scriptTorrentDoneRemoveAllFilesEnabled(); },
+        [](tr_session& tgt, tr_variant const& src, ErrorInfo& /*err*/)
+        {
+            if (auto const val = src.value_if<bool>())
+            {
+                tgt.setScriptTorrentDoneRemoveAllFilesEnabled(*val);
+            }
+        });
+
+    map.try_emplace(
+        TR_KEY_force_finish_partial_files_enabled,
+        [](tr_session const& src) -> tr_variant { return src.forceFinishPartialFilesEnabled(); },
+        [](tr_session& tgt, tr_variant const& src, ErrorInfo& /*err*/)
+        {
+            if (auto const val = src.value_if<bool>())
+            {
+                tgt.setForceFinishPartialFilesEnabled(*val);
+            }
+        });
+
+    map.try_emplace(
+        TR_KEY_fork_features,
+        [](tr_session const& /*src*/) -> tr_variant
+        {
+            auto vec = tr_variant::Vector{};
+            vec.emplace_back("force_finish_partial_files/v1");
+            vec.emplace_back("min_free_space/v1");
+            vec.emplace_back("min_free_space_resume_margin/v1");
+            vec.emplace_back("move_completed_torrents/v1");
+            vec.emplace_back("move_partial_files/v1");
+            vec.emplace_back("per_torrent_incomplete_dir/v1");
+            vec.emplace_back("script_torrent_done_remove/v1");
+            vec.emplace_back("torrent_archive/v1");
+            vec.emplace_back("torrent_archive_upload/v1");
+            vec.emplace_back("torrent_set_incomplete_dir/v1");
+            vec.emplace_back("status/v2");
+            return tr_variant{ std::move(vec) };
+        },
+        nullptr);
+
     return map;
 }
 
@@ -2733,6 +2954,12 @@ using SessionAccessors = std::pair<SessionGetter, SessionSetter>;
     }
 
     session->rpcNotify(TR_RPC_SESSION_CHANGED);
+
+    if (err == error_none && !std::empty(params))
+    {
+        tr_sessionSaveSettings(session, session->configDir(), tr_variant::make_map());
+    }
+
     return err;
 }
 
@@ -2791,6 +3018,785 @@ using SessionAccessors = std::pair<SessionGetter, SessionSetter>;
     return { Error::SUCCESS, std::string{} };
 }
 
+// --- Archive
+
+[[nodiscard]] tr_quark archive_key(std::string_view const sv)
+{
+    return tr_quark_new(sv);
+}
+
+[[nodiscard]] tr_variant archive_entry_to_variant(tr::archive::Entry const& entry)
+{
+    auto map = tr_variant::Map{};
+    map.try_emplace(archive_key("archive"), entry.archive);
+    map.try_emplace(archive_key("hash_string"), entry.hash_string);
+    map.try_emplace(archive_key("name"), entry.name);
+    map.try_emplace(archive_key("download_dir"), entry.download_dir);
+    map.try_emplace(archive_key("added_date"), entry.added_date);
+    map.try_emplace(archive_key("archived_date"), entry.archived_date);
+    map.try_emplace(archive_key("total_size"), static_cast<int64_t>(entry.total_size));
+    map.try_emplace(archive_key("local_data_deleted"), entry.local_data_deleted);
+    map.try_emplace(archive_key("has_torrent"), entry.has_torrent);
+    map.try_emplace(archive_key("has_resume"), entry.has_resume);
+    map.try_emplace(archive_key("has_metadata"), entry.has_metadata);
+    map.try_emplace(archive_key("has_magnet"), entry.has_magnet);
+
+    auto labels = tr_variant::make_vector(entry.labels.size());
+    if (auto* const vec = labels.get_if<tr_variant::Vector>(); vec != nullptr)
+    {
+        for (auto const& label : entry.labels)
+        {
+            vec->emplace_back(label);
+        }
+    }
+    map.try_emplace(archive_key("labels"), std::move(labels));
+
+    return tr_variant{ std::move(map) };
+}
+
+[[nodiscard]] std::vector<std::string> archive_hashes_from_args(tr_variant::Map const& args)
+{
+    auto hashes = std::vector<std::string>{};
+
+    if (auto const* const vec = args.find_if<tr_variant::Vector>(archive_key("hashes")); vec != nullptr)
+    {
+        for (auto const& var : *vec)
+        {
+            if (auto const hash = var.value_if<std::string_view>(); hash)
+            {
+                hashes.emplace_back(*hash);
+            }
+        }
+    }
+    else if (auto const hash = args.value_if<std::string_view>(archive_key("hashes")); hash)
+    {
+        hashes.emplace_back(*hash);
+    }
+
+    return hashes;
+}
+
+[[nodiscard]] JsonRpc::Error::Code archive_error_code(tr_error const& error)
+{
+    if (error.code() == EINVAL || error.code() == ENOENT || error.code() == EEXIST)
+    {
+        return JsonRpc::Error::INVALID_PARAMS;
+    }
+
+    return JsonRpc::Error::SYSTEM_ERROR;
+}
+
+void set_archive_import_result(tr_rpc_idle_data* idle_data, tr::archive::ImportResult const& result)
+{
+    auto hashes = tr_variant::make_vector(result.hashes.size());
+    if (auto* const vec = hashes.get_if<tr_variant::Vector>(); vec != nullptr)
+    {
+        for (auto const& hash : result.hashes)
+        {
+            vec->emplace_back(hash);
+        }
+    }
+
+    idle_data->args_out.try_emplace(archive_key("imported"), static_cast<int64_t>(result.hashes.size()));
+    idle_data->args_out.try_emplace(archive_key("skipped"), static_cast<int64_t>(result.skipped));
+    idle_data->args_out.try_emplace(archive_key("hashes"), std::move(hashes));
+}
+
+[[nodiscard]] bool write_bundle_temp(
+    tr_session& session,
+    std::string_view const contents,
+    std::string& out_path,
+    tr_error* error)
+{
+    auto const exports_dir = std::string{ session.archiveExportsDir() };
+    if (!tr_sys_dir_create(exports_dir, TR_SYS_DIR_CREATE_PARENTS, 0777, error))
+    {
+        return false;
+    }
+
+    auto tmp_path = tr_pathbuf{ exports_dir, "/.upload-import.XXXXXX"sv };
+    auto const file = tr_sys_file_open_temp(std::data(tmp_path), error);
+    if (file == TR_BAD_SYS_FILE)
+    {
+        return false;
+    }
+
+    auto ok = true;
+    auto remaining = contents;
+    while (!std::empty(remaining))
+    {
+        auto written = uint64_t{};
+        if (!tr_sys_file_write(file, std::data(remaining), std::size(remaining), &written, error) || written == 0U)
+        {
+            if (error != nullptr && !*error)
+            {
+                error->set(static_cast<tr_error_code_t>(EIO), "couldn't write uploaded bundle"sv);
+            }
+            ok = false;
+            break;
+        }
+
+        remaining.remove_prefix(static_cast<size_t>(written));
+    }
+
+    if (!tr_sys_file_close(file, ok ? error : nullptr))
+    {
+        ok = false;
+    }
+
+    if (!ok)
+    {
+        tr_sys_path_remove(tmp_path);
+        return false;
+    }
+
+    out_path = tmp_path.sv();
+    return true;
+}
+
+void torrentArchive(tr_session* session, tr_variant::Map const& args_in, tr_rpc_idle_data* idle_data)
+{
+    using namespace JsonRpc;
+
+    auto const action = args_in.value_if<std::string_view>(archive_key("action")).value_or(""sv);
+    auto const archive_name = std::string{ args_in.value_if<std::string_view>(archive_key("archive")).value_or(""sv) };
+
+    if (std::empty(action))
+    {
+        tr_rpc_idle_done(idle_data, Error::INVALID_PARAMS, "no archive action specified"sv);
+        return;
+    }
+
+    if (action == "save"sv)
+    {
+        auto const delete_local_data = args_in.value_if<bool>(TR_KEY_delete_local_data).value_or(false);
+        auto const overwrite = args_in.value_if<bool>(archive_key("overwrite")).value_or(false);
+        auto ids = std::vector<tr_torrent_id_t>{};
+        for (auto const* const tor : getTorrents(session, args_in))
+        {
+            ids.emplace_back(tor->id());
+        }
+
+        session->run_in_session_thread(
+            [session, idle_data, archive_name, ids = std::move(ids), delete_local_data, overwrite]()
+            {
+                auto saved = size_t{};
+                auto errors_var = tr_variant::make_vector();
+                auto* const errors = errors_var.get_if<tr_variant::Vector>();
+
+                for (auto const id : ids)
+                {
+                    auto* const tor = session->torrents().get(id);
+                    if (tor == nullptr)
+                    {
+                        continue;
+                    }
+
+                    auto error = tr_error{};
+                    if (tr::archive::save(*session, *tor, archive_name, delete_local_data, overwrite, &error))
+                    {
+                        ++saved;
+                    }
+                    else
+                    {
+                        auto map = tr_variant::Map{};
+                        map.try_emplace(archive_key("id"), static_cast<int64_t>(id));
+                        map.try_emplace(archive_key("error"), error.message());
+                        errors->emplace_back(std::move(map));
+                    }
+                }
+
+                idle_data->args_out.try_emplace(archive_key("saved"), static_cast<int64_t>(saved));
+                if (!std::empty(*errors))
+                {
+                    idle_data->args_out.try_emplace(archive_key("errors"), std::move(errors_var));
+                }
+
+                tr_rpc_idle_done(idle_data, Error::SUCCESS, {});
+            });
+        return;
+    }
+
+    if (action == "restore"sv)
+    {
+        auto const hash = std::string{ args_in.value_if<std::string_view>(archive_key("hash_string")).value_or(""sv) };
+        auto const download_dir = std::string{ args_in.value_if<std::string_view>(TR_KEY_download_dir).value_or(""sv) };
+        auto const remove = args_in.value_if<bool>(archive_key("remove")).value_or(false);
+        auto const verify = args_in.value_if<bool>(archive_key("verify")).value_or(false);
+
+        if (auto const* const items = args_in.find_if<tr_variant::Vector>(archive_key("items")); items != nullptr)
+        {
+            auto requests = std::vector<tr::archive::RestoreRequest>{};
+            requests.reserve(items->size());
+
+            for (auto const& item_var : *items)
+            {
+                auto const* const item = item_var.get_if<tr_variant::Map>();
+                if (item == nullptr)
+                {
+                    tr_rpc_idle_done(idle_data, Error::INVALID_PARAMS, "restore item is not an object"sv);
+                    return;
+                }
+
+                auto request = tr::archive::RestoreRequest{};
+                request.archive = std::string{ item->value_if<std::string_view>(archive_key("archive")).value_or(""sv) };
+                request.hash_string = std::string{
+                    item->value_if<std::string_view>(archive_key("hash_string")).value_or(""sv)
+                };
+                request.download_dir = std::string{
+                    item->value_if<std::string_view>(TR_KEY_download_dir).value_or(download_dir)
+                };
+                request.remove_from_archive = item->value_if<bool>(archive_key("remove")).value_or(remove);
+                request.verify = item->value_if<bool>(archive_key("verify")).value_or(verify);
+                requests.emplace_back(std::move(request));
+            }
+
+            if (std::empty(requests))
+            {
+                tr_rpc_idle_done(idle_data, Error::INVALID_PARAMS, "no restore items specified"sv);
+                return;
+            }
+
+            session->run_in_session_thread(
+                [session, idle_data, requests = std::move(requests)]()
+                {
+                    auto result = tr::archive::RestoreBatchResult{};
+                    auto error = tr_error{};
+                    if (!tr::archive::restore(*session, requests, result, &error))
+                    {
+                        tr_rpc_idle_done(idle_data, archive_error_code(error), error.message());
+                        return;
+                    }
+
+                    auto entries_var = tr_variant::make_vector(result.entries.size());
+                    if (auto* const entries = entries_var.get_if<tr_variant::Vector>(); entries != nullptr)
+                    {
+                        for (auto const& entry : result.entries)
+                        {
+                            auto map = tr_variant::Map{};
+                            map.try_emplace(archive_key("archive"), entry.archive);
+                            map.try_emplace(archive_key("hash_string"), entry.hash_string);
+                            map.try_emplace(archive_key("removed"), entry.removed);
+                            if (!std::empty(entry.remove_error))
+                            {
+                                map.try_emplace(archive_key("remove_error"), entry.remove_error);
+                            }
+                            entries->emplace_back(std::move(map));
+                        }
+                    }
+
+                    auto errors_var = tr_variant::make_vector(result.errors.size());
+                    if (auto* const errors = errors_var.get_if<tr_variant::Vector>(); errors != nullptr)
+                    {
+                        for (auto const& restore_error : result.errors)
+                        {
+                            auto map = tr_variant::Map{};
+                            map.try_emplace(archive_key("archive"), restore_error.archive);
+                            map.try_emplace(archive_key("hash_string"), restore_error.hash_string);
+                            map.try_emplace(archive_key("error"), restore_error.message);
+                            errors->emplace_back(std::move(map));
+                        }
+                    }
+
+                    idle_data->args_out.try_emplace(archive_key("restored"), static_cast<int64_t>(result.restored));
+                    idle_data->args_out.try_emplace(archive_key("entries"), std::move(entries_var));
+                    if (!std::empty(result.errors))
+                    {
+                        idle_data->args_out.try_emplace(archive_key("errors"), std::move(errors_var));
+                    }
+                    tr_rpc_idle_done(idle_data, Error::SUCCESS, {});
+                });
+            return;
+        }
+
+        if (std::empty(hash))
+        {
+            tr_rpc_idle_done(idle_data, Error::INVALID_PARAMS, "no info hash specified"sv);
+            return;
+        }
+
+        session->run_in_session_thread(
+            [session, idle_data, archive_name, hash, download_dir, remove, verify]()
+            {
+                auto result = tr::archive::RestoreResult{};
+                auto error = tr_error{};
+                if (!tr::archive::restore(*session, archive_name, hash, download_dir, remove, verify, result, &error))
+                {
+                    tr_rpc_idle_done(idle_data, archive_error_code(error), error.message());
+                    return;
+                }
+
+                idle_data->args_out.try_emplace(archive_key("hash_string"), result.hash_string);
+                idle_data->args_out.try_emplace(archive_key("removed"), result.removed);
+                if (!std::empty(result.remove_error))
+                {
+                    idle_data->args_out.try_emplace(archive_key("remove_error"), result.remove_error);
+                }
+                tr_rpc_idle_done(idle_data, Error::SUCCESS, {});
+            });
+        return;
+    }
+
+    if (action == "create_archive"sv)
+    {
+        if (std::empty(archive_name))
+        {
+            tr_rpc_idle_done(idle_data, Error::INVALID_PARAMS, "no archive specified"sv);
+            return;
+        }
+
+        session->run_in_session_thread(
+            [session, idle_data, archive_name]()
+            {
+                auto created = false;
+                auto error = tr_error{};
+                if (!tr::archive::create_archive(*session, archive_name, created, &error))
+                {
+                    tr_rpc_idle_done(idle_data, archive_error_code(error), error.message());
+                    return;
+                }
+
+                idle_data->args_out.try_emplace(archive_key("created"), created);
+                tr_rpc_idle_done(idle_data, Error::SUCCESS, {});
+            });
+        return;
+    }
+
+    if (action == "delete_archive"sv)
+    {
+        if (std::empty(archive_name))
+        {
+            tr_rpc_idle_done(idle_data, Error::INVALID_PARAMS, "no archive specified"sv);
+            return;
+        }
+
+        session->run_in_session_thread(
+            [session, idle_data, archive_name]()
+            {
+                auto error = tr_error{};
+                if (!tr::archive::delete_archive(*session, archive_name, &error))
+                {
+                    tr_rpc_idle_done(idle_data, archive_error_code(error), error.message());
+                    return;
+                }
+
+                idle_data->args_out.try_emplace(archive_key("deleted"), true);
+                tr_rpc_idle_done(idle_data, Error::SUCCESS, {});
+            });
+        return;
+    }
+
+    if (action == "delete"sv)
+    {
+        auto const hash = std::string{ args_in.value_if<std::string_view>(archive_key("hash_string")).value_or(""sv) };
+
+        if (std::empty(archive_name))
+        {
+            tr_rpc_idle_done(idle_data, Error::INVALID_PARAMS, "no archive specified"sv);
+            return;
+        }
+
+        if (std::empty(hash))
+        {
+            tr_rpc_idle_done(idle_data, Error::INVALID_PARAMS, "no info hash specified"sv);
+            return;
+        }
+
+        session->run_in_session_thread(
+            [session, idle_data, archive_name, hash]()
+            {
+                auto result = tr::archive::DeleteResult{};
+                auto error = tr_error{};
+                if (!tr::archive::delete_entry(*session, archive_name, hash, result, &error))
+                {
+                    tr_rpc_idle_done(idle_data, archive_error_code(error), error.message());
+                    return;
+                }
+
+                idle_data->args_out.try_emplace(archive_key("archive"), result.archive);
+                idle_data->args_out.try_emplace(archive_key("hash_string"), result.hash_string);
+                idle_data->args_out.try_emplace(archive_key("deleted"), true);
+                idle_data->args_out.try_emplace(archive_key("files_removed"), static_cast<int64_t>(result.files_removed));
+                tr_rpc_idle_done(idle_data, Error::SUCCESS, {});
+            });
+        return;
+    }
+
+    if (action == "list_archives"sv)
+    {
+        session->run_in_session_thread(
+            [session, idle_data]()
+            {
+                auto names = std::vector<std::string>{};
+                auto error = tr_error{};
+                if (!tr::archive::list_archives(*session, names, &error))
+                {
+                    tr_rpc_idle_done(idle_data, archive_error_code(error), error.message());
+                    return;
+                }
+
+                auto archives = tr_variant::make_vector(names.size());
+                if (auto* const vec = archives.get_if<tr_variant::Vector>(); vec != nullptr)
+                {
+                    for (auto const& name : names)
+                    {
+                        vec->emplace_back(name);
+                    }
+                }
+
+                idle_data->args_out.try_emplace(archive_key("total"), static_cast<int64_t>(names.size()));
+                idle_data->args_out.try_emplace(archive_key("archives"), std::move(archives));
+                tr_rpc_idle_done(idle_data, Error::SUCCESS, {});
+            });
+        return;
+    }
+
+    if (action == "list"sv)
+    {
+        auto const offset = static_cast<size_t>(
+            std::max<int64_t>(0, args_in.value_if<int64_t>(archive_key("offset")).value_or(0)));
+        auto const limit = static_cast<size_t>(
+            std::max<int64_t>(0, args_in.value_if<int64_t>(archive_key("limit")).value_or(1000)));
+
+        auto sort_by = tr::archive::SortBy::None;
+        if (auto const value = args_in.value_if<std::string_view>(archive_key("sort_by")); value && !std::empty(*value))
+        {
+            if (*value == "name"sv)
+            {
+                sort_by = tr::archive::SortBy::Name;
+            }
+            else if (*value == "size"sv || *value == "total_size"sv)
+            {
+                sort_by = tr::archive::SortBy::TotalSize;
+            }
+            else if (*value == "added_date"sv)
+            {
+                sort_by = tr::archive::SortBy::AddedDate;
+            }
+            else if (*value == "archived_date"sv)
+            {
+                sort_by = tr::archive::SortBy::ArchivedDate;
+            }
+            else if (*value == "folder"sv || *value == "download_dir"sv)
+            {
+                sort_by = tr::archive::SortBy::DownloadDir;
+            }
+            else
+            {
+                tr_rpc_idle_done(idle_data, Error::INVALID_PARAMS, "invalid sort_by"sv);
+                return;
+            }
+        }
+
+        auto sort_order = tr::archive::SortOrder::Ascending;
+        if (auto const value = args_in.value_if<std::string_view>(archive_key("sort_order")); value && !std::empty(*value))
+        {
+            if (*value == "asc"sv || *value == "ascending"sv)
+            {
+                sort_order = tr::archive::SortOrder::Ascending;
+            }
+            else if (*value == "desc"sv || *value == "descending"sv)
+            {
+                sort_order = tr::archive::SortOrder::Descending;
+            }
+            else
+            {
+                tr_rpc_idle_done(idle_data, Error::INVALID_PARAMS, "invalid sort_order"sv);
+                return;
+            }
+        }
+
+        auto request = tr::archive::ListRequest{};
+        request.offset = offset;
+        request.limit = limit;
+        request.sort_by = sort_by;
+        request.sort_order = sort_order;
+        request.label = std::string{ args_in.value_if<std::string_view>(archive_key("label")).value_or(""sv) };
+
+        session->run_in_session_thread(
+            [session, idle_data, archive_name, request = std::move(request)]()
+            {
+                auto result = tr::archive::ListResult{};
+                auto error = tr_error{};
+                if (!tr::archive::list(*session, archive_name, request, result, &error))
+                {
+                    tr_rpc_idle_done(idle_data, archive_error_code(error), error.message());
+                    return;
+                }
+
+                auto entries_var = tr_variant::make_vector(result.entries.size());
+                if (auto* const entries = entries_var.get_if<tr_variant::Vector>(); entries != nullptr)
+                {
+                    for (auto const& entry : result.entries)
+                    {
+                        entries->emplace_back(archive_entry_to_variant(entry));
+                    }
+                }
+
+                idle_data->args_out.try_emplace(archive_key("total"), static_cast<int64_t>(result.total));
+                idle_data->args_out.try_emplace(archive_key("entries"), std::move(entries_var));
+                tr_rpc_idle_done(idle_data, Error::SUCCESS, {});
+            });
+        return;
+    }
+
+    if (action == "view"sv || action == "download"sv)
+    {
+        auto const hash = std::string{ args_in.value_if<std::string_view>(archive_key("hash_string")).value_or(""sv) };
+
+        if (std::empty(archive_name))
+        {
+            tr_rpc_idle_done(idle_data, Error::INVALID_PARAMS, "no archive specified"sv);
+            return;
+        }
+
+        if (std::empty(hash))
+        {
+            tr_rpc_idle_done(idle_data, Error::INVALID_PARAMS, "no info hash specified"sv);
+            return;
+        }
+
+        session->run_in_session_thread(
+            [session, idle_data, archive_name, hash]()
+            {
+                auto result = tr::archive::ViewResult{};
+                auto error = tr_error{};
+                if (!tr::archive::view(*session, archive_name, hash, result, &error))
+                {
+                    tr_rpc_idle_done(idle_data, archive_error_code(error), error.message());
+                    return;
+                }
+
+                static constexpr uint64_t MaxInlineBytes = 32U * 1024U * 1024U;
+                if (result.size > MaxInlineBytes)
+                {
+                    tr_rpc_idle_done(idle_data, Error::INVALID_PARAMS, "entry bundle is too large to return inline"sv);
+                    return;
+                }
+
+                auto files_var = tr_variant::make_vector(result.files.size());
+                if (auto* const files = files_var.get_if<tr_variant::Vector>(); files != nullptr)
+                {
+                    for (auto const& filename : result.files)
+                    {
+                        files->emplace_back(filename);
+                    }
+                }
+
+                idle_data->args_out.try_emplace(archive_key("archive"), result.archive);
+                idle_data->args_out.try_emplace(archive_key("hash_string"), result.hash_string);
+                idle_data->args_out.try_emplace(archive_key("name"), result.name);
+                idle_data->args_out.try_emplace(archive_key("filename"), result.filename);
+                idle_data->args_out.try_emplace(archive_key("size"), static_cast<int64_t>(result.size));
+                idle_data->args_out.try_emplace(archive_key("count"), static_cast<int64_t>(result.files.size()));
+                idle_data->args_out.try_emplace(archive_key("files"), std::move(files_var));
+                idle_data->args_out.try_emplace(archive_key("data_base64"), tr_base64_encode(result.data));
+                tr_rpc_idle_done(idle_data, Error::SUCCESS, {});
+            });
+        return;
+    }
+
+    if (action == "move"sv)
+    {
+        auto const target_archive = std::string{
+            args_in.value_if<std::string_view>(archive_key("target_archive")).value_or(""sv)
+        };
+        auto const overwrite = args_in.value_if<bool>(archive_key("overwrite")).value_or(false);
+        auto hashes = archive_hashes_from_args(args_in);
+
+        if (std::empty(target_archive))
+        {
+            tr_rpc_idle_done(idle_data, Error::INVALID_PARAMS, "no target archive specified"sv);
+            return;
+        }
+
+        session->run_in_session_thread(
+            [session, idle_data, archive_name, target_archive, hashes = std::move(hashes), overwrite]()
+            {
+                auto result = tr::archive::MoveResult{};
+                auto error = tr_error{};
+                if (!tr::archive::move(*session, archive_name, target_archive, hashes, overwrite, result, &error))
+                {
+                    tr_rpc_idle_done(idle_data, archive_error_code(error), error.message());
+                    return;
+                }
+
+                auto missing = tr_variant::make_vector(result.missing.size());
+                if (auto* const vec = missing.get_if<tr_variant::Vector>(); vec != nullptr)
+                {
+                    for (auto const& hash : result.missing)
+                    {
+                        vec->emplace_back(hash);
+                    }
+                }
+
+                idle_data->args_out.try_emplace(archive_key("moved"), static_cast<int64_t>(result.moved));
+                idle_data->args_out.try_emplace(archive_key("missing"), std::move(missing));
+                tr_rpc_idle_done(idle_data, Error::SUCCESS, {});
+            });
+        return;
+    }
+
+    if (action == "export"sv)
+    {
+        auto const output_path = std::string{ args_in.value_if<std::string_view>(TR_KEY_path).value_or(""sv) };
+        auto const overwrite = args_in.value_if<bool>(archive_key("overwrite")).value_or(false);
+        auto const inline_export = args_in.value_if<bool>(archive_key("inline")).value_or(false);
+        auto hashes = archive_hashes_from_args(args_in);
+
+        session->run_in_session_thread(
+            [session, idle_data, archive_name, output_path, hashes = std::move(hashes), overwrite, inline_export]()
+            {
+                auto result = tr::archive::ExportResult{};
+                auto error = tr_error{};
+                if (!tr::archive::export_bundle(*session, archive_name, hashes, output_path, overwrite, result, &error))
+                {
+                    tr_rpc_idle_done(idle_data, archive_error_code(error), error.message());
+                    return;
+                }
+
+                idle_data->args_out.try_emplace(archive_key("path"), result.path);
+                idle_data->args_out.try_emplace(archive_key("size"), static_cast<int64_t>(result.size));
+                idle_data->args_out.try_emplace(archive_key("count"), static_cast<int64_t>(result.count));
+                idle_data->args_out.try_emplace(archive_key("sha256"), result.sha256);
+
+                if (inline_export)
+                {
+                    static constexpr uint64_t MaxInlineBytes = 32U * 1024U * 1024U;
+                    if (result.size > MaxInlineBytes)
+                    {
+                        tr_rpc_idle_done(
+                            idle_data,
+                            Error::INVALID_PARAMS,
+                            "export is too large to return inline; use the path argument"sv);
+                        return;
+                    }
+
+                    auto contents = std::vector<char>{};
+                    if (!tr_file_read(result.path, contents, &error))
+                    {
+                        tr_rpc_idle_done(idle_data, archive_error_code(error), error.message());
+                        return;
+                    }
+
+                    idle_data->args_out.try_emplace(
+                        archive_key("data_base64"),
+                        tr_base64_encode(std::string_view{ std::data(contents), std::size(contents) }));
+                }
+
+                tr_rpc_idle_done(idle_data, Error::SUCCESS, {});
+            });
+        return;
+    }
+
+    if (action == "import"sv)
+    {
+        auto const bundle_path = std::string{ args_in.value_if<std::string_view>(TR_KEY_path).value_or(""sv) };
+        auto const data_base64 = std::string{ args_in.value_if<std::string_view>(archive_key("data_base64"))
+                                                  .value_or(
+                                                      args_in.value_if<std::string_view>(TR_KEY_metainfo).value_or(""sv)) };
+        auto const expected_sha256 = tr_strlower(
+            std::string{ args_in.value_if<std::string_view>(archive_key("sha256")).value_or(""sv) });
+        auto const overwrite = args_in.value_if<bool>(archive_key("overwrite")).value_or(false);
+
+        if (std::empty(archive_name))
+        {
+            tr_rpc_idle_done(idle_data, Error::INVALID_PARAMS, "no archive specified"sv);
+            return;
+        }
+
+        if (!std::empty(bundle_path) && !std::empty(data_base64))
+        {
+            tr_rpc_idle_done(idle_data, Error::INVALID_PARAMS, "specify either path or data_base64, not both"sv);
+            return;
+        }
+
+        if (std::empty(bundle_path) && std::empty(data_base64))
+        {
+            tr_rpc_idle_done(idle_data, Error::INVALID_PARAMS, "no bundle path or data_base64 specified"sv);
+            return;
+        }
+
+        if (!std::empty(expected_sha256) && !tr_sha256_from_string(expected_sha256))
+        {
+            tr_rpc_idle_done(idle_data, Error::INVALID_PARAMS, "invalid bundle sha256"sv);
+            return;
+        }
+
+        if (std::empty(data_base64))
+        {
+            session->run_in_session_thread(
+                [session, idle_data, archive_name, bundle_path, overwrite]()
+                {
+                    auto result = tr::archive::ImportResult{};
+                    auto error = tr_error{};
+                    if (!tr::archive::import_bundle(*session, bundle_path, archive_name, overwrite, result, &error))
+                    {
+                        tr_rpc_idle_done(idle_data, archive_error_code(error), error.message());
+                        return;
+                    }
+
+                    set_archive_import_result(idle_data, result);
+                    tr_rpc_idle_done(idle_data, Error::SUCCESS, {});
+                });
+            return;
+        }
+
+        static constexpr auto MaxEncodedBundleBytes = (tr::archive::MaxBundleBytes + 2U) / 3U * 4U;
+        if (std::size(data_base64) > MaxEncodedBundleBytes)
+        {
+            tr_rpc_idle_done(idle_data, Error::INVALID_PARAMS, "uploaded bundle is too large"sv);
+            return;
+        }
+
+        auto const bundle_contents = tr_base64_decode(data_base64);
+        if (std::size(bundle_contents) > tr::archive::MaxBundleBytes)
+        {
+            tr_rpc_idle_done(idle_data, Error::INVALID_PARAMS, "uploaded bundle is too large"sv);
+            return;
+        }
+
+        auto const actual_sha256 = std::string{ tr_sha256_to_string(tr_sha256::digest(bundle_contents)).sv() };
+        if (!std::empty(expected_sha256) && expected_sha256 != actual_sha256)
+        {
+            tr_rpc_idle_done(idle_data, Error::INVALID_PARAMS, "archive bundle checksum mismatch"sv);
+            return;
+        }
+
+        auto error = tr_error{};
+        auto temp_path = std::string{};
+        if (!write_bundle_temp(*session, bundle_contents, temp_path, &error))
+        {
+            tr_rpc_idle_done(idle_data, archive_error_code(error), error.message());
+            return;
+        }
+
+        auto const bundle_size = static_cast<int64_t>(std::size(bundle_contents));
+        session->run_in_session_thread(
+            [session, idle_data, archive_name, temp_path = std::move(temp_path), overwrite, bundle_size, actual_sha256]()
+            {
+                auto result = tr::archive::ImportResult{};
+                auto import_error = tr_error{};
+                auto const ok = tr::archive::import_bundle(*session, temp_path, archive_name, overwrite, result, &import_error);
+                tr_sys_path_remove(temp_path);
+
+                if (!ok)
+                {
+                    tr_rpc_idle_done(idle_data, archive_error_code(import_error), import_error.message());
+                    return;
+                }
+
+                idle_data->args_out.try_emplace(archive_key("size"), bundle_size);
+                idle_data->args_out.try_emplace(archive_key("sha256"), actual_sha256);
+                set_archive_import_result(idle_data, result);
+                tr_rpc_idle_done(idle_data, Error::SUCCESS, {});
+            });
+        return;
+    }
+
+    tr_rpc_idle_done(idle_data, Error::INVALID_PARAMS, "unknown archive action"sv);
+}
+
 // ---
 
 [[nodiscard]] std::pair<JsonRpc::Error::Code, std::string> sessionClose(
@@ -2806,7 +3812,7 @@ using SessionAccessors = std::pair<SessionGetter, SessionSetter>;
 
 using SyncHandler = std::pair<JsonRpc::Error::Code, std::string> (*)(tr_session*, tr_variant::Map const&, tr_variant::Map&);
 
-auto const sync_handlers = small::max_size_map<tr_quark, std::pair<SyncHandler, bool /*has_side_effects*/>, 20U>{ {
+auto const sync_handlers = small::max_size_map<tr_quark, std::pair<SyncHandler, bool /*has_side_effects*/>, 21U>{ {
     { TR_KEY_free_space, { freeSpace, false } },
     { TR_KEY_group_get, { groupGet, false } },
     { TR_KEY_group_set, { groupSet, true } },
@@ -2822,6 +3828,7 @@ auto const sync_handlers = small::max_size_map<tr_quark, std::pair<SyncHandler, 
     { TR_KEY_torrent_reannounce, { torrentReannounce, true } },
     { TR_KEY_torrent_remove, { torrentRemove, true } },
     { TR_KEY_torrent_set, { torrentSet, true } },
+    { TR_KEY_torrent_set_incomplete_dir, { torrentSetIncompleteDir, true } },
     { TR_KEY_torrent_set_location, { torrentSetLocation, true } },
     { TR_KEY_torrent_start, { torrentStart, true } },
     { TR_KEY_torrent_start_now, { torrentStartNow, true } },
@@ -2831,10 +3838,11 @@ auto const sync_handlers = small::max_size_map<tr_quark, std::pair<SyncHandler, 
 
 using AsyncHandler = void (*)(tr_session*, tr_variant::Map const&, tr_rpc_idle_data*);
 
-auto const async_handlers = small::max_size_map<tr_quark, std::pair<AsyncHandler, bool /*has_side_effects*/>, 4U>{ {
+auto const async_handlers = small::max_size_map<tr_quark, std::pair<AsyncHandler, bool /*has_side_effects*/>, 5U>{ {
     { TR_KEY_blocklist_update, { blocklistUpdate, true } },
     { TR_KEY_port_test, { portTest, false } },
     { TR_KEY_torrent_add, { torrentAdd, true } },
+    { TR_KEY_torrent_archive, { torrentArchive, true } },
     { TR_KEY_torrent_rename_path, { torrentRenamePath, true } },
 } };
 
@@ -2842,9 +3850,16 @@ void noop_response_callback(tr_variant&& /*response*/)
 {
 }
 
-void tr_rpc_request_exec_impl(tr_session* session, tr_variant& request, tr_rpc_response_func&& callback, bool is_batch)
+void tr_rpc_request_exec_impl(
+    tr_session* session,
+    tr_variant& request,
+    tr_rpc_response_func&& callback,
+    bool is_batch,
+    tr_rpc_client_features features)
 {
     using namespace JsonRpc;
+
+    auto const features_guard = ClientFeaturesGuard{ features };
 
     if (!callback)
     {
@@ -2949,7 +3964,11 @@ void tr_rpc_request_exec_impl(tr_session* session, tr_variant& request, tr_rpc_r
     tr_rpc_idle_done(data, Error::METHOD_NOT_FOUND, {});
 }
 
-void tr_rpc_request_exec_batch(tr_session* session, tr_variant::Vector& requests, tr_rpc_response_func&& callback)
+void tr_rpc_request_exec_batch(
+    tr_session* session,
+    tr_variant::Vector& requests,
+    tr_rpc_response_func&& callback,
+    tr_rpc_client_features features)
 {
     auto const n_requests = std::size(requests);
     auto responses = std::make_shared<tr_variant::Vector>(n_requests);
@@ -2977,33 +3996,49 @@ void tr_rpc_request_exec_batch(tr_session* session, tr_variant::Vector& requests
                     (*cb)(!std::empty(*responses) ? std::move(*responses) : tr_variant{});
                 }
             },
-            true);
+            true,
+            features);
     }
 }
 } // namespace
 
+[[nodiscard]] bool tr_rpcIsSessionKeySettable(tr_quark const key)
+{
+    auto const& accessors = session_accessors();
+    auto const iter = accessors.find(key);
+    return iter != std::end(accessors) && static_cast<bool>(iter->second.second);
+}
+
 // TODO(tearfur): take `tr_variant const& request` after removing api_compat
-void tr_rpc_request_exec(tr_session* session, tr_variant& request, tr_rpc_response_func&& callback)
+void tr_rpc_request_exec(
+    tr_session* session,
+    tr_variant& request,
+    tr_rpc_response_func&& callback,
+    tr_rpc_client_features features)
 {
     auto const lock = session->unique_lock();
 
     if (auto* const vec = request.get_if<tr_variant::Vector>(); vec != nullptr)
     {
-        tr_rpc_request_exec_batch(session, *vec, std::move(callback));
+        tr_rpc_request_exec_batch(session, *vec, std::move(callback), features);
         return;
     }
 
-    tr_rpc_request_exec_impl(session, request, std::move(callback), false);
+    tr_rpc_request_exec_impl(session, request, std::move(callback), false, features);
 }
 
-void tr_rpc_request_exec(tr_session* session, std::string_view request, tr_rpc_response_func&& callback)
+void tr_rpc_request_exec(
+    tr_session* session,
+    std::string_view request,
+    tr_rpc_response_func&& callback,
+    tr_rpc_client_features features)
 {
     using namespace JsonRpc;
 
     auto serde = tr_variant_serde::json().inplace();
     if (auto otop = serde.parse(request); otop)
     {
-        tr_rpc_request_exec(session, *otop, std::move(callback));
+        tr_rpc_request_exec(session, *otop, std::move(callback), features);
         return;
     }
 

@@ -166,6 +166,14 @@ public:
         reset_blocks_bitfield(requests);
     }
 
+    // Webseeds are not counted as peers for replication bookkeeping, but their
+    // outstanding requests still have to go back into the wishlist when they
+    // stop being used.
+    TR_CONSTEXPR_VEC void on_webseed_removed(tr_bitfield const& requests)
+    {
+        reset_blocks_bitfield(requests);
+    }
+
     constexpr void on_piece_completed(tr_piece_index_t const piece)
     {
         remove_piece(piece);

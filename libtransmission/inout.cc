@@ -86,8 +86,22 @@ bool write_entire_buf(tr_sys_file_t const fd, uint64_t file_offset, std::span<ui
 
     // does the file exist?
     auto const file_size = tor.file_size(file_index);
-    auto const prealloc = writable && tor.file_is_wanted(file_index) ? session.preallocationMode() :
-                                                                       tr_file_preallocation::None;
+    auto prealloc = writable && tor.file_is_wanted(file_index) ? session.preallocationMode() : tr_file_preallocation::None;
+
+    // Don't preallocate if doing so would push the directory below its floor.
+    if (prealloc != tr_file_preallocation::None)
+    {
+        auto const dir = tor.current_dir().sv();
+        if (auto const limit = session.minFreeSpaceFor(dir); limit)
+        {
+            auto const free = session.freeSpaceFor(dir);
+            if (free < *limit || free - *limit < file_size)
+            {
+                prealloc = tr_file_preallocation::None;
+            }
+        }
+    }
+
     if (auto const found = tor.find_file(file_index); found)
     {
         return open_files.get(tor_id, file_index, writable, found->filename(), prealloc, file_size);
@@ -196,42 +210,6 @@ void write_bytes(
     }
 }
 
-std::optional<tr_sha1_digest_t> recalculate_hash(tr_torrent const& tor, tr_piece_index_t const piece)
-{
-    TR_ASSERT(piece < tor.piece_count());
-
-    auto sha = tr_sha1{};
-    auto buffer = std::array<uint8_t, tr_block_info::BlockSize>{};
-    auto& open_files = tor.session->openFiles();
-
-    auto const [begin_byte, end_byte] = tor.block_info().byte_span_for_piece(piece);
-    auto const [begin_block, end_block] = tor.block_span_for_piece(piece);
-    [[maybe_unused]] auto n_bytes_checked = size_t{};
-    for (auto block = begin_block; block < end_block; ++block)
-    {
-        auto const block_loc = tor.block_loc(block);
-        auto const block_len = tor.block_size(block);
-        auto contents = std::span{ std::data(buffer), block_len };
-        if (auto const success = tr_ioRead(tor, open_files, block_loc, contents) == 0; !success)
-        {
-            return {};
-        }
-
-        // Handle edge cases where blocks aren't perfectly aligned on piece boundaries.
-        // `std::max` ensures we don't start hashing before the piece begins (for the first block).
-        // `std::min` ensures we don't hash past the end of the piece (for the last block).
-        auto const start = std::max(begin_byte, block_loc.byte);
-        auto const end = std::min(end_byte, block_loc.byte + block_len);
-        auto const piece_data = contents.subspan(start - block_loc.byte, static_cast<size_t>(end - start));
-
-        sha.add(std::data(piece_data), std::size(piece_data));
-        n_bytes_checked += std::size(piece_data);
-    }
-
-    TR_ASSERT(tor.piece_size(piece) == n_bytes_checked);
-    return sha.finish();
-}
-
 } // namespace
 
 tr_error_code_t tr_ioRead(
@@ -296,10 +274,4 @@ tr_error_code_t tr_ioWrite(
     }
 
     return error.code();
-}
-
-bool tr_ioTestPiece(tr_torrent const& tor, tr_piece_index_t const piece)
-{
-    auto const hash = recalculate_hash(tor, piece);
-    return hash && *hash == tor.piece_hash(piece);
 }

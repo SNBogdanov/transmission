@@ -25,5 +25,7 @@ inline auto constexpr TrHttpServerRpcRelativePath = std::string_view{ "rpc" };
 inline auto constexpr TrHttpServerWebRelativePath = std::string_view{ "web/" };
 inline auto constexpr TrRpcSessionIdHeader = std::string_view{ "X-Transmission-Session-Id" };
 inline auto constexpr TrRpcVersionHeader = std::string_view{ "X-Transmission-Rpc-Version" };
+inline auto constexpr TrRpcClientFeaturesHeader = std::string_view{ "X-Transmission-Client-Features" };
+inline auto constexpr TrRpcClientFeatureStatusV2 = std::string_view{ "status/v2" };
 
 inline auto constexpr TrBlockSize = uint32_t{ 1024U * 16U };

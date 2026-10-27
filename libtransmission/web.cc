@@ -14,6 +14,7 @@
 #include <cstdint> // for uint64_t
 #include <ctime>
 #include <functional> // for std::less()
+#include <iterator>
 #include <list>
 #include <map>
 #include <memory>
@@ -29,6 +30,8 @@
 #include <wincrypt.h>
 #include <ws2tcpip.h>
 #else
+#include <netdb.h> // getaddrinfo, freeaddrinfo
+#include <netinet/in.h> // sockaddr_in, sockaddr_in6, IN6_IS_ADDR_UNSPECIFIED
 #include <sys/socket.h> // setsockopt, SOL_SOCKET, SO_RC...
 #endif
 
@@ -328,6 +331,11 @@ public:
         [[nodiscard]] constexpr auto const& rcvbuf() const
         {
             return options_.rcvbuf;
+        }
+
+        [[nodiscard]] constexpr bool check_dns() const
+        {
+            return options_.check_dns;
         }
 
         [[nodiscard]] constexpr auto const& timeoutSecs() const
@@ -732,6 +740,92 @@ public:
         remove_task(task);
     }
 
+    [[nodiscard]] std::optional<std::string> resolve_is_unspecified(Task const& task) const
+    {
+        if (!task.check_dns() || mediator.proxyUrl())
+        {
+            return std::nullopt;
+        }
+
+        auto const parsed = tr_urlParse(task.url());
+        if (!parsed)
+        {
+            return std::nullopt;
+        }
+
+        auto const host = std::string{ std::empty(parsed->host_wo_brackets) ? parsed->host : parsed->host_wo_brackets };
+        if (std::empty(host))
+        {
+            return std::nullopt;
+        }
+
+        auto hints = addrinfo{};
+        hints.ai_family = AF_UNSPEC;
+        hints.ai_socktype = SOCK_STREAM;
+
+        auto* res = static_cast<addrinfo*>(nullptr);
+        if (getaddrinfo(host.c_str(), nullptr, &hints, &res) != 0)
+        {
+            return std::nullopt;
+        }
+
+        auto unspecified = std::string{};
+        auto has_valid = false;
+        for (auto const* it = res; it != nullptr; it = it->ai_next)
+        {
+            if (it->ai_family == AF_INET)
+            {
+                auto const* const sin = reinterpret_cast<sockaddr_in const*>(it->ai_addr);
+                if (sin->sin_addr.s_addr == 0)
+                {
+                    if (std::empty(unspecified))
+                    {
+                        unspecified = "0.0.0.0";
+                    }
+                }
+                else
+                {
+                    has_valid = true;
+                    break;
+                }
+            }
+            else if (it->ai_family == AF_INET6)
+            {
+                auto const* const sin6 = reinterpret_cast<sockaddr_in6 const*>(it->ai_addr);
+                auto const* const bytes = sin6->sin6_addr.s6_addr;
+                auto const is_unspecified = IN6_IS_ADDR_UNSPECIFIED(&sin6->sin6_addr) ||
+                    (IN6_IS_ADDR_V4MAPPED(&sin6->sin6_addr) && bytes[12] == 0 && bytes[13] == 0 && bytes[14] == 0 &&
+                     bytes[15] == 0);
+                if (is_unspecified)
+                {
+                    if (std::empty(unspecified))
+                    {
+                        unspecified = "::";
+                    }
+                }
+                else
+                {
+                    has_valid = true;
+                    break;
+                }
+            }
+            else
+            {
+                has_valid = true;
+                break;
+            }
+        }
+
+        freeaddrinfo(res);
+
+        if (!has_valid && !std::empty(unspecified))
+        {
+            return unspecified;
+        }
+
+        return std::nullopt;
+    }
+
     // the thread started by Impl.curl_thread runs this function
     void curlThreadFunc()
     {
@@ -748,6 +842,8 @@ public:
         auto repeats = unsigned{};
         for (;;)
         {
+            auto blocked_tasks = std::list<Task>{};
+
             if (deadline_reached())
             {
                 while (!std::empty(running_tasks_))
@@ -783,15 +879,37 @@ public:
                 // add queued tasks
                 if (!std::empty(queued_tasks_))
                 {
-                    for (auto& task : queued_tasks_)
+                    for (auto it = std::begin(queued_tasks_); it != std::end(queued_tasks_);)
                     {
+                        auto& task = *it;
+
+                        if (auto const unspecified = resolve_is_unspecified(task); unspecified)
+                        {
+                            task.response.status = 0;
+                            task.response.primary_ip = *unspecified;
+                            task.response.did_connect = false;
+                            task.response.did_timeout = false;
+
+                            auto const next = std::next(it);
+                            blocked_tasks.splice(std::end(blocked_tasks), queued_tasks_, it);
+                            it = next;
+                            continue;
+                        }
+
                         initEasy(task);
                         curl_multi_add_handle(multi.get(), task.easy());
+                        ++it;
                     }
 
                     running_tasks_.splice(std::end(running_tasks_), queued_tasks_);
                 }
             }
+
+            for (auto& task : blocked_tasks)
+            {
+                task.done();
+            }
+            blocked_tasks.clear();
 
             resumePausedTasks();
 
@@ -848,7 +966,7 @@ public:
                     task->response.did_connect = task->response.status > 0 || req_bytes_sent > 0;
                     task->response.did_timeout = task->response.status == 0 &&
                         std::chrono::duration<double>(total_time) >= task->timeoutSecs();
-                    task->response.primary_ip = primary_ip;
+                    task->response.primary_ip = primary_ip != nullptr ? primary_ip : "";
                     curl_multi_remove_handle(multi.get(), e);
                     remove_task(*task);
                 }

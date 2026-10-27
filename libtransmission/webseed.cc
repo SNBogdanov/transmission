@@ -21,6 +21,7 @@
 #include "libtransmission/bitfield.h"
 #include "libtransmission/block-info.h"
 #include "libtransmission/inout.h"
+#include "libtransmission/local-data.h"
 #include "libtransmission/peer-common.h"
 #include "libtransmission/peer-mgr.h"
 #include "libtransmission/session.h"
@@ -156,7 +157,9 @@ private:
     time_t paused_until_ = 0;
 };
 
-class tr_webseed_impl final : public tr_webseed
+class tr_webseed_impl final
+    : public tr_webseed
+    , public std::enable_shared_from_this<tr_webseed_impl>
 {
 public:
     struct RequestLimit
@@ -369,10 +372,13 @@ void tr_webseed_task::use_fetched_blocks()
     auto const lock = session_->unique_lock();
 
     auto const& tor = webseed_->tor;
+    auto const& block_info = tor.block_info();
 
     for (;;)
     {
-        auto const block_size = tor.block_size(loc_.block);
+        auto const block = loc_.block;
+        auto const byte_span = block_info.byte_span_for_block(block);
+        auto const block_size = byte_span.size();
         if (std::size(content_) < block_size)
         {
             break;
@@ -384,22 +390,46 @@ void tr_webseed_task::use_fetched_blocks()
         }
         else
         {
-            auto block_buf = std::vector<uint8_t>{};
-            block_buf.resize(block_size);
-            content_.to_buf(block_buf);
-
+            auto event = tr_peer_event::GotBlock(block_info, block);
+            auto block_data = std::make_shared<tr::LocalData::BlockData>(block_size);
+            content_.to_buf(std::data(*block_data), std::size(*block_data));
             session_->run_in_session_thread(
-                [buf = std::move(block_buf), loc = loc_, session = session_, tor_id = tor.id(), webseed = webseed_]()
+                [session = session_,
+                 tor_id = tor.id(),
+                 block,
+                 byte_span,
+                 block_data = std::move(block_data),
+                 event,
+                 weak = webseed_->weak_from_this()]()
                 {
-                    if (auto* const torrent = session->torrents().get(tor_id))
+                    auto webseed = weak.lock();
+                    if (!webseed)
                     {
-                        webseed->active_requests.unset(loc.block);
-                        if (tr_ioWrite(*torrent, session->openFiles(), loc, buf) != 0)
+                        return;
+                    }
+
+                    webseed->active_requests.unset(block);
+                    auto on_written = [session, event, weak](tr_torrent_id_t, tr_byte_span_t, tr_error const& error)
+                    {
+                        if (error)
                         {
                             return;
                         }
-                        webseed->publish(tr_peer_event::GotBlock(torrent->block_info(), loc.block));
-                    }
+
+                        session->run_in_session_thread(
+                            [event, weak]()
+                            {
+                                if (auto self = weak.lock())
+                                {
+                                    self->publish(event);
+                                }
+                            });
+                    };
+                    session->local_data.write(
+                        tor_id,
+                        byte_span,
+                        std::make_unique<tr::LocalData::BlockData>(std::move(*block_data)),
+                        std::move(on_written));
                 });
         }
 
@@ -510,11 +540,11 @@ void tr_webseed_task::request_next_chunk()
 
 // ---
 
-std::unique_ptr<tr_webseed> tr_webseed::create(
+std::shared_ptr<tr_webseed> tr_webseed::create(
     tr_torrent& torrent,
     std::string_view url,
     tr_peer_callback_webseed callback,
     void* callback_data)
 {
-    return std::make_unique<tr_webseed_impl>(torrent, url, callback, callback_data);
+    return std::make_shared<tr_webseed_impl>(torrent, url, callback, callback_data);
 }
