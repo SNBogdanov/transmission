@@ -1767,12 +1767,14 @@ ReadResult tr_peerMsgsImpl::process_peer_message(uint8_t id, MessageReader& payl
         logtrace(this, "got Choke");
         set_client_choked(true);
 
-        if (!fext)
-        {
-            publish(tr_peer_event::GotChoke());
-            active_requests.set_has_none();
-            request_timeouts_.clear();
-        }
+        // Hand the outstanding blocks back to the wishlist right away. With
+        // the fast extension the peer may send a Reject for each request, but
+        // many clients do not. Waiting for those rejects or for the request
+        // timeout would keep the last wanted blocks parked on a choked peer
+        // and stall the torrent at e.g. 99%.
+        publish(tr_peer_event::GotChoke());
+        active_requests.set_has_none();
+        request_timeouts_.clear();
 
         update_active(tr_direction::PeerToClient);
         update_desired_request_count(); // set desired request count to 0
@@ -2092,22 +2094,31 @@ tr_error_code_t tr_peerMsgsImpl::client_got_block(
 
     logtrace(this, fmt::format("got block {:d}", block));
 
-    auto event = tr_peer_event::GotBlock(tor_.block_info(), block);
+    auto const block_info = tor_.block_info();
+    auto event = tr_peer_event::GotBlock(block_info, block);
 
     session->local_data.write(
         tor_.id(),
-        tor_.block_info().byte_span_for_block(block),
+        block_info.byte_span_for_block(block),
         std::move(block_data),
-        [session = session, weak = weak_from_this(), block, event](tr_torrent_id_t, tr_byte_span_t, tr_error const& error)
+        [session = session, weak = weak_from_this(), block, block_info, event](
+            tr_torrent_id_t,
+            tr_byte_span_t,
+            tr_error const& error)
         {
             if (error)
             {
                 session->run_in_session_thread(
-                    [weak, block]()
+                    [weak, block, block_info]()
                     {
                         if (auto msgs = weak.lock())
                         {
                             msgs->active_requests.unset(block);
+
+                            // The write failed, so this block never made it to
+                            // the piece. Hand it back to the wishlist instead
+                            // of leaving it marked as requested forever.
+                            msgs->publish(tr_peer_event::GotRejected(block_info, block));
                         }
                     });
                 return;

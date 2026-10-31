@@ -1225,9 +1225,14 @@ void tr_session::onDoneActionFinished()
     processDoneActionQueue();
 }
 
-void tr_session::onDoneScriptFinished(tr_torrent_id_t const /*tor_id*/, int const /*exit_status*/)
+void tr_session::onDoneScriptFinished(tr_torrent_id_t const tor_id, int const /*exit_status*/)
 {
     TR_ASSERT(am_in_session_thread());
+
+    if (auto* const tor = torrents().get(tor_id); tor != nullptr)
+    {
+        tor->script_on_done_pending_ = false;
+    }
 
     // The external done script owns moving, temp-file cleanup and torrent
     // removal. Doing any of that here would remove a torrent whose data could

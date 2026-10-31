@@ -822,6 +822,14 @@ void tr_torrent::start(bool bypass_queue, std::optional<bool> has_any_local_data
         return;
 
     case TR_STATUS_PENDING_MOVE:
+        if (is_move_in_progress())
+        {
+            // The data is being relocated right now. Starting would reopen the
+            // files being moved; remember the request and start after the move.
+            resume_after_move_ = true;
+            return;
+        }
+
         if (is_running())
         {
             return; /* already running */
@@ -893,6 +901,15 @@ void tr_torrent::start_in_session_thread()
         session->enqueueDoneAction(id());
     }
 
+    // recheck_completeness() or the enqueue above may have started a move that
+    // stopped the torrent again. Do not announce or seed until it finishes;
+    // the completion callback starts the torrent when resume_after_move_ is set.
+    if (is_move_in_progress())
+    {
+        resume_after_move_ = true;
+        return;
+    }
+
     set_is_queued(false);
 
     time_t const now = tr_time();
@@ -924,6 +941,7 @@ void tr_torrent::stop_now()
 
     is_running_ = false;
     is_stopping_ = false;
+    resume_after_move_ = false;
     mark_changed();
 
     if (!session->isClosing())
@@ -955,6 +973,19 @@ void tr_torrentRemoveInSessionThread(
     auto const lock = tor->unique_lock();
 
     tor->session->releaseMoveReservation(tor->id());
+
+    if (tor->is_move_in_progress())
+    {
+        // The move worker still holds a pointer to this torrent and is
+        // touching its files. Freeing it now would race with the move, so
+        // remember the request and let the move callback finish the removal.
+        tor->remove_after_move_ = true;
+        tor->remove_after_move_delete_flag_ = delete_flag;
+        tor->remove_after_move_func_ = std::move(remove_func);
+        tor->start_when_stable_ = false;
+        tor->stop_now();
+        return;
+    }
 
     if (delete_flag && tor->has_metainfo())
     {
@@ -1423,15 +1454,21 @@ void tr_torrent::set_location(
          setme_state,
          source = std::string(source_dir)]() mutable
         {
-            auto* const tor = session->torrents().get(tor_id);
-            if (tor == nullptr)
+            auto* const outer_tor = session->torrents().get(tor_id);
+            if (outer_tor == nullptr)
             {
                 return;
             }
 
             if (!move_from_old_path)
             {
-                tor->set_download_dir(path);
+                // The caller declares that the data is already at the new
+                // location. Clear any pending-move state so the torrent does
+                // not stay reported as TR_STATUS_PENDING_MOVE forever.
+                outer_tor->set_pending_move(false);
+                outer_tor->set_move_in_progress(false);
+                outer_tor->resume_after_move_ = false;
+                outer_tor->set_download_dir(path);
                 if (setme_state != nullptr)
                 {
                     *setme_state = TR_LOC_DONE;
@@ -1440,10 +1477,23 @@ void tr_torrent::set_location(
                 return;
             }
 
-            session->verify_remove(tor);
+            // Stop seeding while the data is relocated. The move runs on a
+            // worker thread, so unlike a synchronous move the session keeps
+            // running: connected peers would keep reopening the files and on
+            // Windows the move would fail or leave data split between the old
+            // and new directories. Resume after a successful move.
+            auto const resume_after_move = outer_tor->is_done() && (outer_tor->is_running() || outer_tor->start_when_stable_);
+            if (outer_tor->is_done() && outer_tor->is_running())
+            {
+                tr_torrentStop(outer_tor);
+            }
 
-            auto old_path = !std::empty(source) ? std::move(source) : std::string{ tor->current_dir() };
-            auto const top_name = std::string{ tor->name() };
+            outer_tor->resume_after_move_ = resume_after_move;
+            outer_tor->set_move_in_progress(true);
+            session->verify_remove(outer_tor);
+
+            auto old_path = !std::empty(source) ? std::move(source) : std::string{ outer_tor->current_dir() };
+            auto const top_name = std::string{ outer_tor->name() };
             session->local_data.move(
                 tor_id,
                 old_path,
@@ -1456,6 +1506,11 @@ void tr_torrent::set_location(
                     auto* const tor = session->torrents().get(tor_id);
                     if (!tor)
                     {
+                        // The torrent was removed while its data was moving,
+                        // e.g. by an external importer. The completion queue
+                        // still has to advance, otherwise every later completed
+                        // torrent would stay stuck waiting for this callback.
+                        session->run_in_session_thread([session, tor_id]() { session->onDoneMoveFinished(tor_id, false); });
                         return;
                     }
 
@@ -1470,7 +1525,24 @@ void tr_torrent::set_location(
                                 fmt::arg("error_code", error.code())));
                         tr_torrentStop(tor);
 
-                        session->run_in_session_thread([session, tor_id]() { session->onDoneMoveFinished(tor_id, false); });
+                        session->run_in_session_thread(
+                            [session, tor_id]()
+                            {
+                                if (auto* const moved_tor = session->torrents().get(tor_id); moved_tor != nullptr)
+                                {
+                                    moved_tor->set_move_in_progress(false);
+                                    moved_tor->resume_after_move_ = false;
+                                    if (std::exchange(moved_tor->remove_after_move_, false))
+                                    {
+                                        tr_torrentRemoveInSessionThread(
+                                            moved_tor,
+                                            moved_tor->remove_after_move_delete_flag_,
+                                            std::move(moved_tor->remove_after_move_func_));
+                                    }
+                                }
+
+                                session->onDoneMoveFinished(tor_id, false);
+                            });
 
                         if (setme_state != nullptr)
                         {
@@ -1485,7 +1557,24 @@ void tr_torrent::set_location(
                         tor->error().set_local_error(_("Move finished but not all wanted files are in the destination"));
                         tr_torrentStop(tor);
 
-                        session->run_in_session_thread([session, tor_id]() { session->onDoneMoveFinished(tor_id, false); });
+                        session->run_in_session_thread(
+                            [session, tor_id]()
+                            {
+                                if (auto* const moved_tor = session->torrents().get(tor_id); moved_tor != nullptr)
+                                {
+                                    moved_tor->set_move_in_progress(false);
+                                    moved_tor->resume_after_move_ = false;
+                                    if (std::exchange(moved_tor->remove_after_move_, false))
+                                    {
+                                        tr_torrentRemoveInSessionThread(
+                                            moved_tor,
+                                            moved_tor->remove_after_move_delete_flag_,
+                                            std::move(moved_tor->remove_after_move_func_));
+                                    }
+                                }
+
+                                session->onDoneMoveFinished(tor_id, false);
+                            });
 
                         if (setme_state != nullptr)
                         {
@@ -1512,7 +1601,29 @@ void tr_torrent::set_location(
 
                     tor->current_dir_ = tor->download_dir();
 
-                    session->run_in_session_thread([session, tor_id]() { session->onDoneMoveFinished(tor_id, true); });
+                    auto const resume = std::exchange(tor->resume_after_move_, false);
+                    session->run_in_session_thread(
+                        [session, tor_id, resume]()
+                        {
+                            if (auto* const moved_tor = session->torrents().get(tor_id); moved_tor != nullptr)
+                            {
+                                moved_tor->set_move_in_progress(false);
+
+                                if (std::exchange(moved_tor->remove_after_move_, false))
+                                {
+                                    tr_torrentRemoveInSessionThread(
+                                        moved_tor,
+                                        moved_tor->remove_after_move_delete_flag_,
+                                        std::move(moved_tor->remove_after_move_func_));
+                                }
+                                else if (resume)
+                                {
+                                    moved_tor->start(false, {});
+                                }
+                            }
+
+                            session->onDoneMoveFinished(tor_id, true);
+                        });
 
                     if (setme_state != nullptr)
                     {
@@ -2810,23 +2921,23 @@ void tr_torrent::set_incomplete_dir(std::string_view const dir, bool const move_
     session->run_in_session_thread(
         [session = this->session, tor_id, dir = std::string(dir), setme_state]() mutable
         {
-            auto* const tor = session->torrents().get(tor_id);
-            if (tor == nullptr)
+            auto* const outer_tor = session->torrents().get(tor_id);
+            if (outer_tor == nullptr)
             {
                 return;
             }
 
             // Prefer the old incomplete directory; fall back to the directory
             // that currently holds the data.
-            auto source = std::string{ tor->incomplete_dir().sv() };
-            if (std::empty(source) || !tor->has_wanted_files_in(source))
+            auto source = std::string{ outer_tor->incomplete_dir().sv() };
+            if (std::empty(source) || !outer_tor->has_wanted_files_in(source))
             {
-                source = std::string{ tor->current_dir().sv() };
+                source = std::string{ outer_tor->current_dir().sv() };
             }
 
-            if (std::empty(source) || source == dir || !tor->has_wanted_files_in(source))
+            if (std::empty(source) || source == dir || !outer_tor->has_wanted_files_in(source))
             {
-                tor->set_incomplete_dir(dir);
+                outer_tor->set_incomplete_dir(dir);
                 if (setme_state != nullptr)
                 {
                     *setme_state = TR_LOC_DONE;
@@ -2834,17 +2945,17 @@ void tr_torrent::set_incomplete_dir(std::string_view const dir, bool const move_
                 return;
             }
 
-            auto const was_running = tor->is_running();
+            auto const was_running = outer_tor->is_running();
             if (was_running)
             {
-                tor->stop_now();
+                outer_tor->stop_now();
             }
 
             session->local_data.move(
                 tor_id,
                 source,
                 dir,
-                std::string{ tor->name() },
+                std::string{ outer_tor->name() },
                 [session, tor_id, dir, was_running, setme_state](tr_torrent_id_t, tr_error const& error) mutable
                 {
                     auto lock = session->unique_lock();

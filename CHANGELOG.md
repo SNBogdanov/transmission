@@ -21,4 +21,8 @@
 - Archive entries keep the display names stored in their `.resume` files.
 - Torrents paused by the minimum-free-space guard keep their run intent across
   daemon restarts.
+- Completed torrents are no longer reported as seeding (status `6`) or
+  finished (`isFinished`) until the move to the download directory finishes,
+  so download clients do not import files too early. Seeding is paused during
+  the move and resumed afterwards.
 - Reduced memory pressure by capping pending writes and applying backpressure.

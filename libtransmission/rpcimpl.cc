@@ -892,7 +892,10 @@ namespace make_torrent_field_helpers
     case TR_KEY_id:
         return st.id;
     case TR_KEY_is_finished:
-        return st.finished;
+        // A completed download is not ready for post-processing until its
+        // completion move has finished. Report it as unfinished while it is
+        // waiting for space or moving data to the download directory.
+        return !tor.is_pending_move() && !tor.is_move_in_progress() && st.finished;
     case TR_KEY_is_private:
         return tor.is_private();
     case TR_KEY_is_stalled:
@@ -978,7 +981,10 @@ namespace make_torrent_field_helpers
                 }
                 else if (status == TR_STATUS_PENDING_MOVE)
                 {
-                    status = TR_STATUS_SEED;
+                    // Report a move as downloading rather than seeding so that
+                    // clients do not start post-processing (importing files)
+                    // before the data has actually reached the download dir.
+                    status = TR_STATUS_DOWNLOAD;
                 }
             }
 

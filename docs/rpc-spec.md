@@ -411,9 +411,9 @@ Files are returned in the order they are laid out in the torrent. References to 
 | 5 | Torrent is queued to seed
 | 6 | Torrent is seeding
 | 7 | Torrent is paused because of insufficient free space
-| 8 | Torrent is waiting for free space to move to the download directory
+| 8 | Torrent is waiting for free space or moving data to the download directory
 
-Clients that do not support the extended statuses receive legacy values: `7` is reported as `0` (stopped) and `8` as `6` (seeding). To receive `7` and `8`, send `X-Transmission-Client-Features: status/v2` in the request headers. The server advertises this capability as `status/v2` in `fork_features`.
+Clients that do not support the extended statuses receive legacy values: `7` is reported as `0` (stopped) and `8` as `4` (downloading). Status `8` is reported while a completed torrent is still being moved, so legacy clients do not treat it as finished and do not start importing its files before the move completes; `isFinished` is false during this period. To receive `7` and `8`, send `X-Transmission-Client-Features: status/v2` in the request headers. The server advertises this capability as `status/v2` in `fork_features`.
 
 `trackers`: array of objects, each containing:
 

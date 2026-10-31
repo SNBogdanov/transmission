@@ -760,7 +760,7 @@ struct tr_torrent
             return TR_STATUS_CHECK_WAIT;
         }
 
-        if (pending_move_)
+        if (pending_move_ || move_in_progress_)
         {
             return TR_STATUS_PENDING_MOVE;
         }
@@ -844,6 +844,19 @@ struct tr_torrent
     [[nodiscard]] constexpr bool is_pending_move() const noexcept
     {
         return pending_move_;
+    }
+
+    /** True while the torrent's data is being relocated. Completed torrents
+        report TR_STATUS_PENDING_MOVE instead of TR_STATUS_SEED until the move
+        finishes, so clients do not treat them as complete too early. */
+    [[nodiscard]] constexpr bool is_move_in_progress() const noexcept
+    {
+        return move_in_progress_;
+    }
+
+    constexpr void set_move_in_progress(bool in_progress) noexcept
+    {
+        move_in_progress_ = in_progress;
     }
 
     [[nodiscard]] constexpr auto pending_move_bytes() const noexcept
@@ -1504,6 +1517,18 @@ private:
     bool is_stopping_ = false;
     bool space_paused_ = false;
     bool pending_move_ = false;
+    bool move_in_progress_ = false;
+
+    // True when the torrent was seeding and was stopped to move its data; it
+    // is started again after a successful move.
+    bool resume_after_move_ = false;
+
+    // A removal request that arrived while the data was moving. Freeing the
+    // torrent then would race with the move worker, so the removal is retried
+    // from the move completion callback.
+    bool remove_after_move_ = false;
+    bool remove_after_move_delete_flag_ = false;
+    tr_torrent_remove_func remove_after_move_func_ = {};
 
     uint64_t pending_move_bytes_ = 0;
 
