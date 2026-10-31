@@ -271,6 +271,13 @@ enum tr_priority_t : int8_t
     TR_PRI_HIGH = 1
 };
 
+enum tr_auto_priority_sort : uint8_t
+{
+    TR_AUTO_PRIORITY_SORT_ID = 0,
+    TR_AUTO_PRIORITY_SORT_NAME = 1,
+    TR_AUTO_PRIORITY_SORT_SIZE = 2
+};
+
 enum tr_port_forwarding_state : uint8_t
 {
     TR_PORT_ERROR,

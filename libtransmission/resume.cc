@@ -235,7 +235,7 @@ tr_resume::fields_t load_file_priorities(tr_variant::Map const& map, tr_torrent*
     {
         if (auto const priority = (*list)[i].value_if<int64_t>(); priority)
         {
-            tor->set_file_priority(i, static_cast<tr_priority_t>(*priority));
+            tor->set_file_priority(i, static_cast<tr_priority_t>(*priority), /*is_internal=*/true);
         }
     }
 
@@ -792,6 +792,15 @@ tr_resume::fields_t load_from_file(tr_torrent* tor, tr_torrent::ResumeHelper& he
         }
     }
 
+    if ((fields_to_load & tr_resume::AutoPriority) != 0)
+    {
+        if (auto b = map.value_if<bool>(TR_KEY_auto_priority); b)
+        {
+            tor->set_auto_priority(*b);
+            fields_loaded |= tr_resume::AutoPriority;
+        }
+    }
+
     if ((fields_to_load & tr_resume::Peers) != 0)
     {
         fields_loaded |= load_peers(map, tor);
@@ -910,6 +919,15 @@ auto set_from_ctor(
         }
     }
 
+    if ((fields & tr_resume::AutoPriority) != 0)
+    {
+        if (auto const& val = ctor.auto_priority(mode); val)
+        {
+            tor->set_auto_priority(*val);
+            ret |= tr_resume::AutoPriority;
+        }
+    }
+
     return ret;
 }
 
@@ -976,6 +994,7 @@ void save(tr_torrent* const tor, tr_torrent::ResumeHelper const& helper)
     map.try_emplace(TR_KEY_paused, !helper.start_when_stable());
     map.try_emplace(TR_KEY_sequential_download, tor->is_sequential_download());
     map.try_emplace(TR_KEY_sequential_download_from_piece, tor->sequential_download_from_piece());
+    map.try_emplace(TR_KEY_auto_priority, tor->auto_priority());
     save_peers(map, tor);
 
     if (tor->has_metainfo())

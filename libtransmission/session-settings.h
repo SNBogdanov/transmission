@@ -81,6 +81,7 @@ public:
     }
 
     bool announce_ip_enabled = false;
+    bool auto_priority_enabled = false;
     bool blocklist_enabled = false;
     bool dht_enabled = true;
     bool download_queue_enabled = true;
@@ -108,6 +109,7 @@ public:
     bool utp_enabled = true;
     double ratio_limit = 2.0;
     size_t unused_cache_size_mbytes = 4U; // TODO(TR5): remove
+    size_t auto_priority_max_high = 3U;
     size_t download_queue_size = 5U;
     size_t peer_limit_global = TrDefaultPeerLimitGlobal;
     size_t peer_limit_per_torrent = TrDefaultPeerLimitTorrent;
@@ -144,6 +146,7 @@ public:
     std::string script_torrent_added_filename;
     std::string script_torrent_done_filename;
     std::string script_torrent_done_seeding_filename;
+    tr_auto_priority_sort auto_priority_sort = TR_AUTO_PRIORITY_SORT_ID;
     tr_encryption_mode encryption_mode = TR_ENCRYPTION_PREFERRED;
     tr_log_level log_level = TR_LOG_INFO;
     tr_mode_t umask = static_cast<tr_mode_t>(022);
@@ -165,6 +168,9 @@ public:
     static constexpr auto Fields = std::make_tuple(
         Field<&SessionSettings::announce_ip>{ TR_KEY_announce_ip },
         Field<&SessionSettings::announce_ip_enabled>{ TR_KEY_announce_ip_enabled },
+        Field<&SessionSettings::auto_priority_enabled>{ TR_KEY_auto_priority_enabled },
+        Field<&SessionSettings::auto_priority_max_high>{ TR_KEY_auto_priority_max_high },
+        Field<&SessionSettings::auto_priority_sort>{ TR_KEY_auto_priority_sort },
         Field<&SessionSettings::bind_address_ipv4>{ TR_KEY_bind_address_ipv4 },
         Field<&SessionSettings::bind_address_ipv6>{ TR_KEY_bind_address_ipv6 },
         Field<&SessionSettings::blocklist_enabled>{ TR_KEY_blocklist_enabled },

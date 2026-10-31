@@ -281,7 +281,6 @@ struct Config
     std::vector<ScriptDefinition> scripts;
 };
 
-
 [[nodiscard]] bool parse_string_array(tr_variant const& var, std::vector<std::string>& out)
 {
     auto const* const vec = var.get_if<tr_variant::Vector>();
@@ -378,7 +377,6 @@ struct Config
     }
     return out.hosts.empty() && !out.min.has_value() && !out.max.has_value();
 }
-
 
 [[nodiscard]] bool parse_script(tr_variant const& var, Config const& config, ScriptDefinition& out)
 {
@@ -544,7 +542,6 @@ struct Config
     return true;
 }
 
-
 [[nodiscard]] bool parse_external_host(tr_variant const& var, ExternalHost& out)
 {
     auto const* const map = var.get_if<tr_variant::Map>();
@@ -627,7 +624,6 @@ struct Config
     return true;
 }
 
-
 [[nodiscard]] bool load_config(std::string_view const path, Config& out)
 {
     auto const var = tr_variant_serde::json().parse_file(path);
@@ -663,8 +659,8 @@ struct Config
 
     if (out.max_concurrent < 1 || out.max_concurrent > 16 || out.queue_limit < 1 || out.queue_limit > 256 ||
         out.queue_limit_per_client < 1 || out.queue_limit_per_client > out.queue_limit || out.max_concurrent_per_client < 0 ||
-        out.max_concurrent_per_client > out.max_concurrent || out.max_output_bytes_default < 1 ||
-        out.max_selection_items < 1 || out.max_payload_bytes < 1024)
+        out.max_concurrent_per_client > out.max_concurrent || out.max_output_bytes_default < 1 || out.max_selection_items < 1 ||
+        out.max_payload_bytes < 1024)
     {
         return false;
     }
@@ -1027,43 +1023,47 @@ void log_job_finished(Job const& job, std::string_view const client_id)
     switch (job.state)
     {
     case Job::State::Finished:
-        tr_logAddInfo(fmt::format(
-            "script runner: job {} script '{}' client '{}' completed successfully in {}s",
-            job.id,
-            script_id,
-            client_id,
-            duration));
+        tr_logAddInfo(
+            fmt::format(
+                "script runner: job {} script '{}' client '{}' completed successfully in {}s",
+                job.id,
+                script_id,
+                client_id,
+                duration));
         break;
 
     case Job::State::Canceled:
-        tr_logAddInfo(fmt::format(
-            "script runner: job {} script '{}' client '{}' canceled after {}s",
-            job.id,
-            script_id,
-            client_id,
-            duration));
+        tr_logAddInfo(
+            fmt::format(
+                "script runner: job {} script '{}' client '{}' canceled after {}s",
+                job.id,
+                script_id,
+                client_id,
+                duration));
         break;
 
     case Job::State::TimedOut:
-        tr_logAddError(fmt::format(
-            "script runner: job {} script '{}' client '{}' timed out after {}s (signal={})",
-            job.id,
-            script_id,
-            client_id,
-            duration,
-            job.has_term_signal ? job.term_signal : 0));
+        tr_logAddError(
+            fmt::format(
+                "script runner: job {} script '{}' client '{}' timed out after {}s (signal={})",
+                job.id,
+                script_id,
+                client_id,
+                duration,
+                job.has_term_signal ? job.term_signal : 0));
         break;
 
     case Job::State::Failed:
-        tr_logAddError(fmt::format(
-            "script runner: job {} script '{}' client '{}' failed after {}s (exit={}, signal={}, error={})",
-            job.id,
-            script_id,
-            client_id,
-            duration,
-            job.has_exit_code ? job.exit_code : 0,
-            job.has_term_signal ? job.term_signal : 0,
-            job.error));
+        tr_logAddError(
+            fmt::format(
+                "script runner: job {} script '{}' client '{}' failed after {}s (exit={}, signal={}, error={})",
+                job.id,
+                script_id,
+                client_id,
+                duration,
+                job.has_exit_code ? job.exit_code : 0,
+                job.has_term_signal ? job.term_signal : 0,
+                job.error));
         break;
 
     case Job::State::Queued:
@@ -1214,9 +1214,9 @@ void log_job_finished(Job const& job, std::string_view const client_id)
                 return false;
             }
 
-            auto const* const stored_value = stored != nullptr && stored->find(param.key) != std::end(*stored)
-                ? stored->find(param.key)->second.get()
-                : nullptr;
+            auto const* const stored_value = stored != nullptr && stored->find(param.key) != std::end(*stored) ?
+                stored->find(param.key)->second.get() :
+                nullptr;
             if (stored_value != nullptr)
             {
                 auto value = stored_value->clone();
@@ -1568,9 +1568,7 @@ void log_job_finished(Job const& job, std::string_view const client_id)
     return out;
 }
 
-[[nodiscard]] bool append_environment(
-    std::map<std::string, std::string> const& env,
-    std::vector<wchar_t>& out)
+[[nodiscard]] bool append_environment(std::map<std::string, std::string> const& env, std::vector<wchar_t>& out)
 {
     auto full_env = std::map<std::wstring, std::wstring, std::less<>>{};
     for (auto const* const name : { L"SystemRoot", L"SystemDrive", L"PATH", L"TEMP", L"TMP", L"USERPROFILE" })
@@ -1697,7 +1695,9 @@ struct Impl
     [[nodiscard]] tr_variant::Map make_values_object() const;
     [[nodiscard]] bool write_values() const;
     [[nodiscard]] std::pair<JsonRpc::Error::Code, std::string> settings_get(tr_variant::Map& result) const;
-    [[nodiscard]] std::pair<JsonRpc::Error::Code, std::string> settings_set(tr_variant::Map const& args, tr_variant::Map& result);
+    [[nodiscard]] std::pair<JsonRpc::Error::Code, std::string> settings_set(
+        tr_variant::Map const& args,
+        tr_variant::Map& result);
 
     std::string config_dir;
     Config config;
@@ -1973,7 +1973,8 @@ std::pair<JsonRpc::Error::Code, std::string> Impl::settings_set(tr_variant::Map 
     {
         auto const* const script_map = script_var.get_if<tr_variant::Map>();
         auto const script_id = script_map != nullptr ? get_string(*script_map, "id") : std::nullopt;
-        auto const* const parameter_map = script_map != nullptr ? script_map->find_if<tr_variant::Map>(q("parameters")) : nullptr;
+        auto const* const parameter_map = script_map != nullptr ? script_map->find_if<tr_variant::Map>(q("parameters")) :
+                                                                  nullptr;
         if (!script_id || parameter_map == nullptr)
         {
             return { Error::INVALID_PARAMS, "invalid script parameters"s };
@@ -2019,7 +2020,8 @@ std::pair<JsonRpc::Error::Code, std::string> Impl::settings_set(tr_variant::Map 
 
         for (auto const& param : script->parameters)
         {
-            if (param.storage == "host"sv && param.required && stored.find(param.key) == std::end(stored) && !param.default_value)
+            if (param.storage == "host"sv && param.required && stored.find(param.key) == std::end(stored) &&
+                !param.default_value)
             {
                 return { Error::INVALID_PARAMS, "script settings incomplete"s };
             }
@@ -2110,11 +2112,7 @@ bool Impl::start_job(
     job->max_output = script.max_output_bytes;
     job->queued_at = static_cast<int64_t>(std::time(nullptr));
     job->started_at = job->queued_at;
-    tr_logAddInfo(fmt::format(
-        "script runner: starting job {} script '{}' client '{}'",
-        job->id,
-        script.id,
-        client_id));
+    tr_logAddInfo(fmt::format("script runner: starting job {} script '{}' client '{}'", job->id, script.id, client_id));
 
     auto env = script.env;
     auto const script_rpc_url = rpc_url(*session);
@@ -2247,12 +2245,7 @@ bool Impl::start_job(
         [process_ptr, payload]()
         {
             auto written = DWORD{};
-            WriteFile(
-                process_ptr->stdin_write,
-                std::data(payload),
-                static_cast<DWORD>(std::size(payload)),
-                &written,
-                nullptr);
+            WriteFile(process_ptr->stdin_write, std::data(payload), static_cast<DWORD>(std::size(payload)), &written, nullptr);
             CloseHandle(process_ptr->stdin_write);
             process_ptr->stdin_write = nullptr;
         });
@@ -2346,7 +2339,8 @@ bool Impl::start_job(
         return false;
     }
 
-    auto const max_fd = [] {
+    auto const max_fd = []
+    {
         auto const limit = sysconf(_SC_OPEN_MAX);
         return static_cast<int>(limit > 0 ? std::min<long>(limit, 65536) : 1024);
     }();
@@ -2717,9 +2711,7 @@ std::pair<JsonRpc::Error::Code, std::string> tr_script_runner::run(
     }
 
     auto const& config = impl_->config;
-    auto const script_iter = std::ranges::find_if(
-        config.scripts,
-        [&id](auto const& item) { return item.id == *id; });
+    auto const script_iter = std::ranges::find_if(config.scripts, [&id](auto const& item) { return item.id == *id; });
     if (script_iter == std::end(config.scripts))
     {
         return { Error::INVALID_PARAMS, "script not found"s };
@@ -2790,11 +2782,8 @@ std::pair<JsonRpc::Error::Code, std::string> tr_script_runner::run(
             token,
             error))
     {
-        tr_logAddError(fmt::format(
-            "script runner: failed to start script '{}' client '{}': {}",
-            script_iter->id,
-            client_id,
-            error));
+        tr_logAddError(
+            fmt::format("script runner: failed to start script '{}' client '{}': {}", script_iter->id, client_id, error));
         return { Error::SYSTEM_ERROR, std::move(error) };
     }
 
@@ -2806,9 +2795,7 @@ std::pair<JsonRpc::Error::Code, std::string> tr_script_runner::run(
     return { Error::SUCCESS, std::string{} };
 }
 
-std::pair<JsonRpc::Error::Code, std::string> tr_script_runner::status(
-    tr_variant::Map const& args,
-    tr_variant::Map& result)
+std::pair<JsonRpc::Error::Code, std::string> tr_script_runner::status(tr_variant::Map const& args, tr_variant::Map& result)
 {
     using namespace JsonRpc;
 
@@ -2900,9 +2887,7 @@ std::pair<JsonRpc::Error::Code, std::string> tr_script_runner::status(
     return { Error::SUCCESS, std::string{} };
 }
 
-std::pair<JsonRpc::Error::Code, std::string> tr_script_runner::cancel(
-    tr_variant::Map const& args,
-    tr_variant::Map& result)
+std::pair<JsonRpc::Error::Code, std::string> tr_script_runner::cancel(tr_variant::Map const& args, tr_variant::Map& result)
 {
     using namespace JsonRpc;
 

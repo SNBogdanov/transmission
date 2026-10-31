@@ -239,8 +239,7 @@ bool tr_torrent_files::move(
         if (!move_partial_files && is_partial)
         {
             auto const renamed_path = tr_pathbuf{ old_parent, '/', found->subpath() };
-            if (!tr_sys_path_is_same(old_path, renamed_path.sv()) &&
-                !tr_file_move(old_path, renamed_path, false, error))
+            if (!tr_sys_path_is_same(old_path, renamed_path.sv()) && !tr_file_move(old_path, renamed_path, false, error))
             {
                 err = true;
                 break;

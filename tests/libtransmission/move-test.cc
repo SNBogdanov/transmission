@@ -16,6 +16,7 @@
 #include <libtransmission/block-info.h>
 #include <libtransmission/file.h> // tr_sys_path_*()
 #include <libtransmission/local-data.h>
+#include <libtransmission/peer-common.h>
 #include <libtransmission/quark.h>
 #include <libtransmission/torrent-files.h>
 #include <libtransmission/torrent.h>

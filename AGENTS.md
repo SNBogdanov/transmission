@@ -17,6 +17,12 @@
   target's binary first.
 - Ask whether we will debug the change and on which machine. If debugging is needed, build and deploy only the single binary for that target first.
 - Build **Windows first** and fix all Windows build errors before building Linux or QNAP.
+- **After a successful Windows build, commit and push the changes via the `git-commit`
+  subagent before building Linux/QNAP.** Linux and QNAP are built on the `transmission`
+  server from committed code: update `/root/Transmission` to the pushed commit and only
+  then run `cmake --build`. Do not rsync an uncommitted working tree to the server.
+- If `/root/Transmission` has uncommitted changes or cannot fast-forward to the pushed
+  commit, stop and report instead of resetting or overwriting it.
 - After a successful Windows build, deploy only the selected debug target (if any) and wait for confirmation that testing passed.
 - After confirmed successful testing, ask before building and deploying to all remaining targets.
 - Before building or deploying, stop the daemon and any process that locks the target binary.
@@ -48,9 +54,11 @@ MSVC note: `tr_error_code_t` is `int64_t` on Windows and `int` on POSIX. Do not 
 `return ENOENT;` with `return err;` in a function whose return type is `auto`; cast errno
 values explicitly, e.g. `return static_cast<tr_error_code_t>(ENOENT);`.
 
-Linux is built on the `transmission` server from `/root/Transmission`:
+Linux is built on the `transmission` server from `/root/Transmission`. The source
+tree there must already be updated to the pushed commit before building:
 
 ```bash
+ssh transmission 'cd /root/Transmission && git status --porcelain && git fetch origin && git merge --ff-only origin/main'
 ssh transmission 'cd /root/Transmission && cmake --build build --target transmission-daemon -j2'
 # artifact: /root/Transmission/build/daemon/transmission-daemon
 ```

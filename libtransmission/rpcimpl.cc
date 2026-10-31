@@ -736,6 +736,7 @@ namespace make_torrent_field_helpers
     {
     case TR_KEY_activity_date:
     case TR_KEY_added_date:
+    case TR_KEY_auto_priority:
     case TR_KEY_availability:
     case TR_KEY_bandwidth_priority:
     case TR_KEY_bytes_completed:
@@ -835,6 +836,8 @@ namespace make_torrent_field_helpers
         return st.activity_date;
     case TR_KEY_added_date:
         return st.added_date;
+    case TR_KEY_auto_priority:
+        return tor.auto_priority();
     case TR_KEY_availability:
         return make_piece_availability_vec(tor);
     case TR_KEY_bandwidth_priority:
@@ -1392,6 +1395,15 @@ namespace make_torrent_field_helpers
             val != nullptr && err == Error::SUCCESS)
         {
             std::tie(err, errmsg) = set_file_priorities(tor, TR_PRI_NORMAL, *val);
+        }
+
+        if (auto const val = args_in.value_if<bool>(TR_KEY_auto_priority); val)
+        {
+            tor->set_auto_priority(*val);
+            if (*val)
+            {
+                tor->apply_auto_priorities();
+            }
         }
 
         if (auto const val = args_in.value_if<int64_t>(TR_KEY_download_limit); val)
@@ -1955,6 +1967,11 @@ void torrentAdd(tr_session* session, tr_variant::Map const& args_in, tr_rpc_idle
         ctor.set_labels(std::move(labels));
     }
 
+    if (auto const val = args_in.value_if<bool>(TR_KEY_auto_priority); val)
+    {
+        ctor.set_auto_priority(TR_FORCE, *val);
+    }
+
     if (auto const val = args_in.value_if<bool>(TR_KEY_sequential_download); val)
     {
         ctor.set_sequential_download(TR_FORCE, *val);
@@ -2177,7 +2194,7 @@ using SessionAccessors = std::pair<SessionGetter, SessionSetter>;
 
 [[nodiscard]] auto& session_accessors()
 {
-    static auto map = small::max_size_map<tr_quark, SessionAccessors, 81U>{};
+    static auto map = small::max_size_map<tr_quark, SessionAccessors, 90U>{};
 
     if (!std::empty(map))
     {
@@ -2280,6 +2297,39 @@ using SessionAccessors = std::pair<SessionGetter, SessionSetter>;
             if (auto const val = src.value_if<int64_t>())
             {
                 tgt.set_anti_brute_force_limit(static_cast<size_t>(*val));
+            }
+        });
+
+    map.try_emplace(
+        TR_KEY_auto_priority_enabled,
+        [](tr_session const& src) -> tr_variant { return src.autoPriorityEnabled(); },
+        [](tr_session& tgt, tr_variant const& src, ErrorInfo& /*err*/)
+        {
+            if (auto const val = src.value_if<bool>())
+            {
+                tgt.setAutoPriorityEnabled(*val);
+            }
+        });
+
+    map.try_emplace(
+        TR_KEY_auto_priority_max_high,
+        [](tr_session const& src) -> tr_variant { return src.autoPriorityMaxHigh(); },
+        [](tr_session& tgt, tr_variant const& src, ErrorInfo& /*err*/)
+        {
+            if (auto const val = src.value_if<int64_t>(); val && *val >= 0)
+            {
+                tgt.setAutoPriorityMaxHigh(static_cast<size_t>(*val));
+            }
+        });
+
+    map.try_emplace(
+        TR_KEY_auto_priority_sort,
+        [](tr_session const& src) -> tr_variant { return tr::serializer::to_variant(src.autoPrioritySort()); },
+        [](tr_session& tgt, tr_variant const& src, ErrorInfo& /*err*/)
+        {
+            if (auto const val = tr::serializer::to_value<tr_auto_priority_sort>(src); val)
+            {
+                tgt.setAutoPrioritySort(*val);
             }
         });
 
@@ -2888,6 +2938,7 @@ using SessionAccessors = std::pair<SessionGetter, SessionSetter>;
         [](tr_session const& src) -> tr_variant
         {
             auto vec = tr_variant::Vector{};
+            vec.emplace_back("auto_priority/v1");
             vec.emplace_back("force_finish_partial_files/v1");
             vec.emplace_back("min_free_space/v1");
             vec.emplace_back("min_free_space_resume_margin/v1");

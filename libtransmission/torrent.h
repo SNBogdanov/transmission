@@ -440,10 +440,19 @@ struct tr_torrent
         return file_priorities_.piece_priority(piece);
     }
 
-    void set_file_priorities(tr_file_index_t const* files, tr_file_index_t file_count, tr_priority_t priority);
+    void set_file_priorities(
+        tr_file_index_t const* files,
+        tr_file_index_t file_count,
+        tr_priority_t priority,
+        bool is_internal = false);
 
-    void set_file_priority(tr_file_index_t file, tr_priority_t priority)
+    void set_file_priority(tr_file_index_t file, tr_priority_t priority, bool is_internal = false)
     {
+        if (!is_internal)
+        {
+            set_auto_priority(false);
+        }
+
         if (priority != file_priorities_.file_priority(file))
         {
             file_priorities_.set(file, priority);
@@ -451,6 +460,24 @@ struct tr_torrent
             set_dirty();
             mark_changed();
         }
+    }
+
+    // Recompute file priorities using the session's auto-priority settings.
+    void apply_auto_priorities();
+
+    void set_auto_priority(bool enabled)
+    {
+        if (enabled != auto_priority_)
+        {
+            auto_priority_ = enabled;
+            set_dirty();
+            mark_changed();
+        }
+    }
+
+    [[nodiscard]] constexpr auto auto_priority() const noexcept
+    {
+        return auto_priority_;
     }
 
     /// LOCATION
@@ -1339,6 +1366,7 @@ private:
         {
             set_dirty();
             recheck_completeness();
+            apply_auto_priorities();
         }
     }
 
@@ -1537,6 +1565,8 @@ private:
     bool finished_seeding_by_idle_ = false;
 
     bool needs_completeness_check_ = true;
+
+    bool auto_priority_ = false;
 
     bool sequential_download_ = false;
 

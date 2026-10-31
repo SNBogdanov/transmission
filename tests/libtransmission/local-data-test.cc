@@ -7,6 +7,7 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <mutex>
 #include <optional>
 #include <string_view>
 #include <thread>
@@ -123,7 +124,14 @@ public:
 
     void close_file(tr_torrent_id_t tor_id, tr_file_index_t file_num) override
     {
+        auto const lock = std::lock_guard{ closed_file_mutex };
         closed_file = std::pair{ tor_id, file_num };
+    }
+
+    [[nodiscard]] std::optional<std::pair<tr_torrent_id_t, tr_file_index_t>> get_closed_file() const
+    {
+        auto const lock = std::lock_guard{ closed_file_mutex };
+        return closed_file;
     }
 
     tr_error_code_t read_err = 0;
@@ -146,7 +154,8 @@ public:
     std::string renamed_from;
     std::string renamed_to;
     std::atomic<tr_torrent_id_t> closed_torrent = -1;
-    std::atomic<std::optional<std::pair<tr_torrent_id_t, tr_file_index_t>>> closed_file;
+    mutable std::mutex closed_file_mutex;
+    std::optional<std::pair<tr_torrent_id_t, tr_file_index_t>> closed_file;
 };
 
 } // namespace
@@ -320,8 +329,7 @@ TEST(LocalData, AdminOperationsDelegate)
     EXPECT_TRUE(wait_for(
         [raw_backend]()
         {
-            auto const& closed = raw_backend->closed_file;
-            auto const opt = std::atomic_load(&closed);
+            auto const opt = raw_backend->get_closed_file();
             return opt.has_value() && opt->first == 13 && opt->second == 2;
         }));
 

@@ -87,7 +87,7 @@ TEST_F(ArchiveBundleTest, roundTrip)
     auto const entries = std::vector<tr::archive::BundleSource>{
         { "manifest.json", std::string{ "Transmission archive manifest"sv }, {}, R"({"version":1})" },
         { "0123456789abcdef0123456789abcdef01234567.torrent", std::string{ comment }, {}, payload },
-        { "0123456789abcdef0123456789abcdef01234567.resume", std::string{ "resume data"sv }, {}, "resume"sv },
+        { "0123456789abcdef0123456789abcdef01234567.resume", std::string{ "resume data"sv }, {}, std::string{ "resume"sv } },
     };
 
     auto error = tr_error{};
@@ -110,7 +110,7 @@ TEST_F(ArchiveBundleTest, roundTrip)
     ASSERT_TRUE(tr::archive::extract_bundle_entry(path, *torrent_entry, extracted_path, &error)) << error;
     auto extracted = std::vector<char>{};
     ASSERT_TRUE(tr_file_read(extracted_path, extracted, &error)) << error;
-    EXPECT_EQ(payload, std::string{ std::data(extracted), std::size(extracted) });
+    EXPECT_EQ(payload, (std::string{ std::data(extracted), std::size(extracted) }));
 }
 
 TEST_F(ArchiveBundleTest, rejectsOversizedEntry)

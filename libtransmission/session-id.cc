@@ -111,20 +111,13 @@ void tr_session_id::cleanup_stale_lockfiles()
             auto const files = tr_sys_dir_get_files(
                 dir,
                 [](std::string_view const name)
-                {
-                    return std::size(name) == 14U + SessionIdSize &&
-                        tr_strv_starts_with(name, "tr_session_id_"sv);
-                });
+                { return std::size(name) == 14U + SessionIdSize && tr_strv_starts_with(name, "tr_session_id_"sv); });
 
             for (auto const& name : files)
             {
                 auto const path = tr_pathbuf{ dir, '/', name };
                 auto error = tr_error{};
-                auto fd = tr_sys_file_open(
-                    path,
-                    TR_SYS_FILE_READ | TR_SYS_FILE_WRITE,
-                    0,
-                    &error);
+                auto fd = tr_sys_file_open(path, TR_SYS_FILE_READ | TR_SYS_FILE_WRITE, 0, &error);
                 if (fd == TR_BAD_SYS_FILE)
                 {
                     error = {};

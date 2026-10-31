@@ -487,6 +487,24 @@ tr_variant from_diffserv_t(tr_diffserv_t const& val)
 
 // ---
 
+auto constexpr AutoPrioritySortKeys = LookupTable<tr_auto_priority_sort, 3U>{ {
+    { "id", TR_AUTO_PRIORITY_SORT_ID },
+    { "name", TR_AUTO_PRIORITY_SORT_NAME },
+    { "size", TR_AUTO_PRIORITY_SORT_SIZE },
+} };
+
+bool to_auto_priority_sort(tr_variant const& src, tr_auto_priority_sort* tgt)
+{
+    return to_enum_or_integral_with_lookup(AutoPrioritySortKeys, src, tgt);
+}
+
+tr_variant from_auto_priority_sort(tr_auto_priority_sort const& val)
+{
+    return from_enum_or_integral_with_lookup(AutoPrioritySortKeys, val);
+}
+
+// ---
+
 auto constexpr VerifyModeKeys = LookupTable<tr_verify_added_mode, 2U>{ {
     { "fast", TR_VERIFY_ADDED_FAST },
     { "full", TR_VERIFY_ADDED_FULL },
@@ -563,6 +581,7 @@ void Converters::ensure_default_converters()
         once,
         []
         {
+            Converters::add(to_auto_priority_sort, from_auto_priority_sort);
             Converters::add(to_bool, from_bool);
             Converters::add(to_diffserv_t, from_diffserv_t);
             Converters::add(to_double, from_double);

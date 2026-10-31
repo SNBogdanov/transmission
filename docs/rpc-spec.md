@@ -179,6 +179,7 @@ Request parameters:
 
 | Key | Value Type | Value Description
 |:--|:--|:--
+| `auto_priority`                  | boolean  | automatically reprioritize this torrent's files (fork extension)
 | `bandwidth_priority`             | number   | this torrent's bandwidth tr_priority_t
 | `download_limit`                 | number   | maximum download speed (kB/s)
 | `download_limited`               | boolean  | true if `download_limit` is honored
@@ -211,6 +212,11 @@ Request parameters:
 Just as an empty `ids` value is shorthand for "all ids", using an empty array
 for `files_wanted`, `files_unwanted`, `priority_high`, `priority_low`, or
 `priority_normal` is shorthand for saying "all files".
+
+`auto_priority` is a fork extension. Enabling it immediately reprioritizes the
+torrent's files and keeps them sorted on file completion. Setting any of
+`priority_high`, `priority_low`, or `priority_normal` disables `auto_priority`
+for that torrent; set `auto_priority: true` afterwards to re-enable it.
 
    Response parameters: none
 
@@ -253,6 +259,7 @@ The 'source' column here corresponds to the data structure there.
 | :-- | :-- | :--
 | `activity_date` | number | tr_stat
 | `added_date` | number | tr_stat
+| `auto_priority` | boolean | tr_torrent
 | `availability` | array (see below) | tr_torrentAvailability()
 | `bandwidth_priority` | number | tr_priority_t
 | `bytes_completed` | array (see below) | n/a
@@ -527,6 +534,7 @@ Request parameters:
 | `metainfo`                       | string    | base64-encoded .torrent content
 | `paused`                         | boolean   | if true, don't start the torrent
 | `peer_limit`                     | number    | maximum number of peers
+| `auto_priority`                  | boolean   | automatically reprioritize this torrent's files (fork extension)
 | `bandwidth_priority`             | number    | torrent's bandwidth tr_priority_t
 | `files_wanted`                   | array     | indices of file(s) to download
 | `files_unwanted`                 | array     | indices of file(s) to not download
@@ -806,6 +814,9 @@ also return `size` (number) and `sha256` (string) for the uploaded bundle.
 | `alt_speed_time_end` | number | when to turn off alt speeds (units: same)
 | `alt_speed_up` | number | max global upload speed (kB/s)
 | `anti_brute_force_enabled` | boolean | true means to enable a basic brute force protection for RPC server
+| `auto_priority_enabled` | boolean | default `auto_priority` value for newly added torrents (fork extension)
+| `auto_priority_max_high` | number | number of files that get the maximum priority (fork extension)
+| `auto_priority_sort` | string | file sort order for auto-priority: `id`, `name`, or `size` (fork extension)
 | `blocklist_enabled` | boolean | true means enabled
 | `blocklist_size` | number | number of rules in the blocklist
 | `blocklist_url` | string | location of the blocklist to use for `blocklist_update`
@@ -818,7 +829,7 @@ also return `size` (number) and `sha256` (string) for the uploaded bundle.
 | `download_queue_enabled` | boolean | if true, limit how many torrents can be downloaded at once
 | `download_queue_size` | number | max number of torrents to download at once (see `download_queue_enabled`)
 | `encryption` | string | `required`, `preferred`, `allowed`
-| `fork_features` | string[] | fork-specific capability identifiers. `min_free_space/v1` and `min_free_space_resume_margin/v1` mean this fork's minimum-free-space settings are available. `per_torrent_incomplete_dir/v1` means `incomplete_dir` can be set per torrent via `torrent_add`/`torrent_set` and is returned by `torrent_get`. `torrent_set_incomplete_dir/v1` means the `torrent_set_incomplete_dir` method is available to change the staging directory and optionally move existing data. `torrent_archive/v1` means the `torrent_archive` method is available. `torrent_archive_upload/v1` means `torrent_archive.import` accepts `data_base64`. `status/v2` means statuses `7` and `8` are available when the client opts in via the `X-Transmission-Client-Features` header.
+| `fork_features` | string[] | fork-specific capability identifiers. `auto_priority/v1` means the auto-priority settings and per-torrent `auto_priority` field are available. `min_free_space/v1` and `min_free_space_resume_margin/v1` mean this fork's minimum-free-space settings are available. `per_torrent_incomplete_dir/v1` means `incomplete_dir` can be set per torrent via `torrent_add`/`torrent_set` and is returned by `torrent_get`. `torrent_set_incomplete_dir/v1` means the `torrent_set_incomplete_dir` method is available to change the staging directory and optionally move existing data. `torrent_archive/v1` means the `torrent_archive` method is available. `torrent_archive_upload/v1` means `torrent_archive.import` accepts `data_base64`. `status/v2` means statuses `7` and `8` are available when the client opts in via the `X-Transmission-Client-Features` header.
 | `idle_seeding_limit` | number | torrents we're seeding will be stopped if they're idle for this long
 | `idle_seeding_limit_enabled` | boolean | true if the seeding inactivity limit is honored by default
 | `incomplete_dir` | string | path for incomplete torrents, when enabled

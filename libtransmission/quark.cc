@@ -62,6 +62,10 @@ auto constexpr MyStatic = std::array<std::string_view, TR_N_KEYS>{
     "anti_brute_force_enabled"sv, // rpc, rpc server settings
     "anti_brute_force_threshold"sv, // rpc server settings
     "arguments"sv, // json-rpc
+    "auto_priority"sv, // .resume, rpc
+    "auto_priority_enabled"sv, // rpc, tr_session::Settings
+    "auto_priority_max_high"sv, // rpc, tr_session::Settings
+    "auto_priority_sort"sv, // rpc, tr_session::Settings
     "availability"sv, // rpc
     "bandwidth-priority"sv, // .resume
     "bandwidthPriority"sv, // rpc

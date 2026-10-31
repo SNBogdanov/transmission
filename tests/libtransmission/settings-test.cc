@@ -188,7 +188,7 @@ TEST_F(SettingsTest, canSaveMode)
     static auto constexpr Key = TR_KEY_umask;
 
     auto settings = tr_session::Settings{};
-    auto const default_value = settings.log_level;
+    auto const default_value = settings.umask;
     auto constexpr ExpectedValue = tr_mode_t{ 0777 };
     ASSERT_NE(ExpectedValue, default_value);
 
@@ -780,4 +780,33 @@ TEST_F(SettingsTest, snapshotSupportsVariantSet)
     EXPECT_DOUBLE_EQ(3.5, *keyval->second.value_if<double>());
 
     EXPECT_FALSE(snapshot.set(TR_KEY_session_id, tr_variant{ "unknown"sv }));
+}
+
+TEST_F(SettingsTest, canLoadAutoPrioritySort)
+{
+    static auto constexpr Key = TR_KEY_auto_priority_sort;
+    static auto constexpr ExpectedValue = TR_AUTO_PRIORITY_SORT_NAME;
+
+    auto settings = tr_session::Settings{};
+    ASSERT_NE(ExpectedValue, settings.auto_priority_sort);
+
+    auto map = tr_variant::Map{ 1U };
+    map.try_emplace(Key, "name"sv);
+    settings.load(tr_variant{ std::move(map) });
+    EXPECT_EQ(ExpectedValue, settings.auto_priority_sort);
+}
+
+TEST_F(SettingsTest, canSaveAutoPrioritySort)
+{
+    static auto constexpr Key = TR_KEY_auto_priority_sort;
+    static auto constexpr SourceValue = TR_AUTO_PRIORITY_SORT_SIZE;
+    static auto constexpr ExpectedValue = "size"sv;
+
+    auto settings = tr_session::Settings{};
+    settings.auto_priority_sort = SourceValue;
+
+    auto const map = settings.save();
+    auto const val = map.value_if<std::string_view>(Key);
+    ASSERT_TRUE(val);
+    EXPECT_EQ(ExpectedValue, *val);
 }

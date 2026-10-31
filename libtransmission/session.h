@@ -593,6 +593,36 @@ public:
         return settings().min_free_space;
     }
 
+    [[nodiscard]] constexpr bool autoPriorityEnabled() const noexcept
+    {
+        return settings_.auto_priority_enabled;
+    }
+
+    constexpr void setAutoPriorityEnabled(bool const enabled) noexcept
+    {
+        settings_.auto_priority_enabled = enabled;
+    }
+
+    [[nodiscard]] constexpr size_t autoPriorityMaxHigh() const noexcept
+    {
+        return settings_.auto_priority_max_high;
+    }
+
+    constexpr void setAutoPriorityMaxHigh(size_t const max_high) noexcept
+    {
+        settings_.auto_priority_max_high = max_high;
+    }
+
+    [[nodiscard]] constexpr tr_auto_priority_sort autoPrioritySort() const noexcept
+    {
+        return settings_.auto_priority_sort;
+    }
+
+    constexpr void setAutoPrioritySort(tr_auto_priority_sort const sort) noexcept
+    {
+        settings_.auto_priority_sort = sort;
+    }
+
     [[nodiscard]] constexpr bool moveCompletedTorrentsEnabled() const noexcept
     {
         return settings_.move_completed_torrents_enabled;

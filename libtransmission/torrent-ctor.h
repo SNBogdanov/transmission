@@ -206,6 +206,16 @@ public:
 
     // ---
 
+    [[nodiscard]] constexpr auto const& auto_priority(tr_ctorMode const mode) const noexcept
+    {
+        return optional_args_[mode].auto_priority_;
+    }
+
+    constexpr void set_auto_priority(tr_ctorMode const mode, bool const enabled) noexcept
+    {
+        optional_args_[mode].auto_priority_ = enabled;
+    }
+
     [[nodiscard]] constexpr auto const& sequential_download(tr_ctorMode const mode) const noexcept
     {
         return optional_args_[mode].sequential_download_;
@@ -230,6 +240,7 @@ private:
     struct OptionalArgs
     {
         std::optional<bool> paused_;
+        std::optional<bool> auto_priority_;
         std::optional<bool> sequential_download_;
         std::optional<tr_piece_index_t> sequential_download_from_piece_;
         std::optional<uint16_t> peer_limit_;

@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cerrno> // EINVAL
 #include <chrono>
 #include <cstddef> // size_t
@@ -78,6 +79,34 @@ using namespace tr::Values;
             return val; \
         } \
     } while (0)
+
+namespace
+{
+
+int compare_file_paths(std::string_view lhs, std::string_view rhs) noexcept
+{
+    auto const n = std::min(std::size(lhs), std::size(rhs));
+
+    for (size_t i = 0; i < n; ++i)
+    {
+        auto const l = static_cast<unsigned char>(std::tolower(static_cast<unsigned char>(lhs[i])));
+        auto const r = static_cast<unsigned char>(std::tolower(static_cast<unsigned char>(rhs[i])));
+
+        if (l != r)
+        {
+            return l < r ? -1 : 1;
+        }
+    }
+
+    if (std::size(lhs) == std::size(rhs))
+    {
+        return 0;
+    }
+
+    return std::size(lhs) < std::size(rhs) ? -1 : 1;
+}
+
+} // namespace
 
 // ---
 
@@ -1258,6 +1287,7 @@ void tr_torrent::init(tr_ctor const& ctor)
     // these are defaults that will be overwritten by the resume file
     date_added_ = now_sec;
     set_sequential_download(session->sequential_download());
+    set_auto_priority(session->autoPriorityEnabled());
 
     tr_resume::fields_t loaded = {};
 
@@ -1361,6 +1391,8 @@ void tr_torrent::init(tr_ctor const& ctor)
     {
         date_done_ = now_sec;
     }
+
+    apply_auto_priorities();
 }
 
 void tr_torrent::set_metainfo(tr_torrent_metainfo tm)
@@ -1376,6 +1408,7 @@ void tr_torrent::set_metainfo(tr_torrent_metainfo tm)
 
     on_metainfo_completed();
     this->on_announce_list_changed();
+    apply_auto_priorities();
 }
 
 tr_torrent* tr_torrentNew(tr_ctor* ctor, tr_torrent** setme_duplicate_of)
@@ -2271,6 +2304,7 @@ void tr_torrent::VerifyMediator::on_verify_done(bool const aborted)
                 }
 
                 tor->recheck_completeness();
+                tor->apply_auto_priorities();
 
                 if (tor->verify_done_callback_)
                 {
@@ -2558,8 +2592,17 @@ tr_block_span_t tr_torrent::block_span_for_file(tr_file_index_t const file) cons
 
 // ---
 
-void tr_torrent::set_file_priorities(tr_file_index_t const* files, tr_file_index_t file_count, tr_priority_t priority)
+void tr_torrent::set_file_priorities(
+    tr_file_index_t const* files,
+    tr_file_index_t file_count,
+    tr_priority_t priority,
+    bool is_internal)
 {
+    if (!is_internal)
+    {
+        set_auto_priority(false);
+    }
+
     if (std::ranges::any_of(
             files,
             files + file_count,
@@ -2569,6 +2612,111 @@ void tr_torrent::set_file_priorities(tr_file_index_t const* files, tr_file_index
         priority_changed_(this, files, file_count, priority);
         set_dirty();
         mark_changed();
+    }
+}
+
+void tr_torrent::apply_auto_priorities()
+{
+    if (!auto_priority_ || session == nullptr || !has_metainfo())
+    {
+        return;
+    }
+
+    auto const n_files = file_count();
+    if (n_files == 0U)
+    {
+        return;
+    }
+
+    auto candidates = std::vector<tr_file_index_t>{};
+    candidates.reserve(n_files);
+    for (tr_file_index_t i = 0; i < n_files; ++i)
+    {
+        if (file_is_wanted(i) && !has_file(i))
+        {
+            candidates.push_back(i);
+        }
+    }
+
+    auto const sort = session->autoPrioritySort();
+    if (sort == TR_AUTO_PRIORITY_SORT_NAME)
+    {
+        std::stable_sort(
+            std::begin(candidates),
+            std::end(candidates),
+            [this](tr_file_index_t lhs, tr_file_index_t rhs)
+            {
+                auto const cmp = compare_file_paths(file_subpath(lhs), file_subpath(rhs));
+                return cmp != 0 ? cmp < 0 : lhs < rhs;
+            });
+    }
+    else if (sort == TR_AUTO_PRIORITY_SORT_SIZE)
+    {
+        std::stable_sort(
+            std::begin(candidates),
+            std::end(candidates),
+            [this](tr_file_index_t lhs, tr_file_index_t rhs)
+            {
+                auto const lhs_size = file_size(lhs);
+                auto const rhs_size = file_size(rhs);
+                return lhs_size != rhs_size ? lhs_size < rhs_size : lhs < rhs;
+            });
+    }
+
+    auto const n_high = std::min<size_t>(std::size(candidates), session->autoPriorityMaxHigh());
+    auto const n_normal = (std::size(candidates) - n_high) / 2U;
+
+    auto desired = std::vector<tr_priority_t>(n_files, TR_PRI_NORMAL);
+    for (size_t i = 0, n = std::size(candidates); i < n; ++i)
+    {
+        desired[candidates[i]] = i < n_high ? TR_PRI_HIGH : i < n_high + n_normal ? TR_PRI_NORMAL : TR_PRI_LOW;
+    }
+
+    auto low = std::vector<tr_file_index_t>{};
+    auto normal = std::vector<tr_file_index_t>{};
+    auto high = std::vector<tr_file_index_t>{};
+    low.reserve(n_files);
+    normal.reserve(n_files);
+    high.reserve(n_high);
+
+    for (tr_file_index_t i = 0; i < n_files; ++i)
+    {
+        switch (desired[i])
+        {
+        case TR_PRI_LOW:
+            low.push_back(i);
+            break;
+        case TR_PRI_HIGH:
+            high.push_back(i);
+            break;
+        case TR_PRI_NORMAL:
+        default:
+            normal.push_back(i);
+            break;
+        }
+    }
+
+    if (!std::empty(low))
+    {
+        set_file_priorities(std::data(low), static_cast<tr_file_index_t>(std::size(low)), TR_PRI_LOW, /*is_internal=*/true);
+    }
+
+    if (!std::empty(normal))
+    {
+        set_file_priorities(
+            std::data(normal),
+            static_cast<tr_file_index_t>(std::size(normal)),
+            TR_PRI_NORMAL,
+            /*is_internal=*/true);
+    }
+
+    if (!std::empty(high))
+    {
+        set_file_priorities(
+            std::data(high),
+            static_cast<tr_file_index_t>(std::size(high)),
+            TR_PRI_HIGH,
+            /*is_internal=*/true);
     }
 }
 
@@ -2738,6 +2886,11 @@ void tr_torrent::on_file_completed(tr_file_index_t const file)
      * metadata -- for example, if it had the ".part" suffix appended to
      * it until now -- then rename it to match the one in the metadata */
     update_file_path(file, true);
+
+    if (verify_state_ == VerifyState::None)
+    {
+        apply_auto_priorities();
+    }
 }
 
 void tr_torrent::on_piece_completed(tr_piece_index_t const piece)

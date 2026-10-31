@@ -15,6 +15,11 @@
 - `min_free_space` and `min_free_space_resume_margin` session settings.
 - Move-completed/partial-file, script-torrent-done-remove, and
   force-finish-partial-files settings.
+- Auto-priority per torrent (`auto_priority`) with session defaults
+  `auto_priority_enabled`, `auto_priority_max_high`, and `auto_priority_sort`.
+  Wanted incomplete files are sorted by id, name, or size; unwanted and
+  completed files stay normal. Manual file-priority changes disable it until
+  it is re-enabled via `torrent-set`.
 
 ### Fixed
 

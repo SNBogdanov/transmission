@@ -42,13 +42,9 @@ public:
         tr_variant::Map const& args,
         tr_variant::Map& result);
 
-    [[nodiscard]] std::pair<JsonRpc::Error::Code, std::string> status(
-        tr_variant::Map const& args,
-        tr_variant::Map& result);
+    [[nodiscard]] std::pair<JsonRpc::Error::Code, std::string> status(tr_variant::Map const& args, tr_variant::Map& result);
 
-    [[nodiscard]] std::pair<JsonRpc::Error::Code, std::string> cancel(
-        tr_variant::Map const& args,
-        tr_variant::Map& result);
+    [[nodiscard]] std::pair<JsonRpc::Error::Code, std::string> cancel(tr_variant::Map const& args, tr_variant::Map& result);
 
     [[nodiscard]] std::pair<JsonRpc::Error::Code, std::string> restart_daemon(
         tr_variant::Map const& args,
