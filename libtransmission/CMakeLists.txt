@@ -129,6 +129,8 @@ target_sources(${TR_NAME}
         rpc-server.h
         rpcimpl.cc
         rpcimpl.h
+        script-runner.cc
+        script-runner.h
         serializer.cc
         serializer.h
         session-alt-speeds.cc

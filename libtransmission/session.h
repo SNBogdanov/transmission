@@ -77,6 +77,7 @@
 tr_peer_id_t tr_peerIdInit();
 
 class tr_peer_socket;
+class tr_script_runner;
 struct tr_pex;
 struct tr_torrent;
 struct struct_utp_context;
@@ -411,6 +412,17 @@ public:
     using Settings = tr::SessionSettings;
 
     explicit tr_session(std::string_view config_dir, tr_variant const& settings_dict);
+    ~tr_session();
+
+    [[nodiscard]] tr_script_runner* scriptRunner() const noexcept
+    {
+        return script_runner_.get();
+    }
+
+    [[nodiscard]] auto const& rpcServer() const noexcept
+    {
+        return *rpc_server_;
+    }
 
     [[nodiscard]] std::string_view sessionId() const
     {
@@ -1354,6 +1366,8 @@ private:
     std::string const archive_dir_;
     std::string const archive_exports_dir_;
     std::string const blocklist_dir_;
+
+    std::unique_ptr<tr_script_runner> const script_runner_;
 
     std::unique_ptr<tr_session_thread> const session_thread_;
 

@@ -41,6 +41,7 @@
 #include "libtransmission/api-compat.h"
 #include "libtransmission/quark.h"
 #include "libtransmission/rpcimpl.h"
+#include "libtransmission/script-runner.h"
 #include "libtransmission/session.h"
 #include "libtransmission/string-utils.h"
 #include "libtransmission/torrent-ctor.h"
@@ -2170,7 +2171,7 @@ using SessionAccessors = std::pair<SessionGetter, SessionSetter>;
 
 [[nodiscard]] auto& session_accessors()
 {
-    static auto map = small::max_size_map<tr_quark, SessionAccessors, 80U>{};
+    static auto map = small::max_size_map<tr_quark, SessionAccessors, 81U>{};
 
     if (!std::empty(map))
     {
@@ -2878,7 +2879,7 @@ using SessionAccessors = std::pair<SessionGetter, SessionSetter>;
 
     map.try_emplace(
         TR_KEY_fork_features,
-        [](tr_session const& /*src*/) -> tr_variant
+        [](tr_session const& src) -> tr_variant
         {
             auto vec = tr_variant::Vector{};
             vec.emplace_back("force_finish_partial_files/v1");
@@ -2892,7 +2893,25 @@ using SessionAccessors = std::pair<SessionGetter, SessionSetter>;
             vec.emplace_back("torrent_archive_upload/v1");
             vec.emplace_back("torrent_set_incomplete_dir/v1");
             vec.emplace_back("status/v2");
+            if (auto* const runner = src.scriptRunner(); runner != nullptr && runner->is_enabled())
+            {
+                vec.emplace_back("script_runner/v1");
+                vec.emplace_back("script_runner_settings/v1");
+                if (runner->is_restart_enabled())
+                {
+                    vec.emplace_back("script_restart_daemon/v1");
+                }
+            }
             return tr_variant{ std::move(vec) };
+        },
+        nullptr);
+
+    map.try_emplace(
+        tr_quark_new("script_runner"),
+        [](tr_session const& src) -> tr_variant
+        {
+            auto* const runner = src.scriptRunner();
+            return runner != nullptr ? runner->get_descriptor(src) : tr_variant::Map{};
         },
         nullptr);
 
@@ -2969,9 +2988,19 @@ using SessionAccessors = std::pair<SessionGetter, SessionSetter>;
     tr_variant::Map& result)
 {
     auto const& accessors = session_accessors();
+    auto const script_runner_key = tr_quark_new("script_runner");
 
     for (auto const key : get_session_fields(params.find_if<tr_variant::Vector>(TR_KEY_fields)))
     {
+        if (key == script_runner_key)
+        {
+            auto* const runner = session->scriptRunner();
+            if (runner == nullptr || !runner->is_enabled())
+            {
+                continue;
+            }
+        }
+
         if (auto const iter = accessors.find(key); iter != std::end(accessors))
         {
             if (auto const& [getter, setter] = iter->second; getter)
@@ -3836,6 +3865,83 @@ auto const sync_handlers = small::max_size_map<tr_quark, std::pair<SyncHandler, 
     { TR_KEY_torrent_verify, { torrentVerify, true } },
 } };
 
+[[nodiscard]] std::pair<JsonRpc::Error::Code, std::string> scriptRun(
+    tr_session* session,
+    tr_variant::Map const& args_in,
+    tr_variant::Map& args_out)
+{
+    auto* const runner = session->scriptRunner();
+    if (runner == nullptr || !runner->is_enabled())
+    {
+        return { JsonRpc::Error::INVALID_PARAMS, "script runner is disabled"s };
+    }
+    return runner->run(session, args_in, args_out);
+}
+
+[[nodiscard]] std::pair<JsonRpc::Error::Code, std::string> scriptStatus(
+    tr_session* session,
+    tr_variant::Map const& args_in,
+    tr_variant::Map& args_out)
+{
+    auto* const runner = session->scriptRunner();
+    if (runner == nullptr || !runner->is_enabled())
+    {
+        return { JsonRpc::Error::INVALID_PARAMS, "script runner is disabled"s };
+    }
+    return runner->status(args_in, args_out);
+}
+
+[[nodiscard]] std::pair<JsonRpc::Error::Code, std::string> scriptCancel(
+    tr_session* session,
+    tr_variant::Map const& args_in,
+    tr_variant::Map& args_out)
+{
+    auto* const runner = session->scriptRunner();
+    if (runner == nullptr || !runner->is_enabled())
+    {
+        return { JsonRpc::Error::INVALID_PARAMS, "script runner is disabled"s };
+    }
+    return runner->cancel(args_in, args_out);
+}
+
+[[nodiscard]] std::pair<JsonRpc::Error::Code, std::string> scriptRestartDaemon(
+    tr_session* session,
+    tr_variant::Map const& args_in,
+    tr_variant::Map& args_out)
+{
+    auto* const runner = session->scriptRunner();
+    if (runner == nullptr || !runner->is_enabled())
+    {
+        return { JsonRpc::Error::INVALID_PARAMS, "script runner is disabled"s };
+    }
+    return runner->restart_daemon(args_in, args_out);
+}
+
+[[nodiscard]] std::pair<JsonRpc::Error::Code, std::string> scriptSettingsGet(
+    tr_session* session,
+    tr_variant::Map const& /*args_in*/,
+    tr_variant::Map& args_out)
+{
+    auto* const runner = session->scriptRunner();
+    if (runner == nullptr || !runner->is_enabled())
+    {
+        return { JsonRpc::Error::INVALID_PARAMS, "script runner is disabled"s };
+    }
+    return runner->settings_get(args_out);
+}
+
+[[nodiscard]] std::pair<JsonRpc::Error::Code, std::string> scriptSettingsSet(
+    tr_session* session,
+    tr_variant::Map const& args_in,
+    tr_variant::Map& args_out)
+{
+    auto* const runner = session->scriptRunner();
+    if (runner == nullptr || !runner->is_enabled())
+    {
+        return { JsonRpc::Error::INVALID_PARAMS, "script runner is disabled"s };
+    }
+    return runner->settings_set(args_in, args_out);
+}
 using AsyncHandler = void (*)(tr_session*, tr_variant::Map const&, tr_rpc_idle_data*);
 
 auto const async_handlers = small::max_size_map<tr_quark, std::pair<AsyncHandler, bool /*has_side_effects*/>, 5U>{ {
@@ -3845,6 +3951,19 @@ auto const async_handlers = small::max_size_map<tr_quark, std::pair<AsyncHandler
     { TR_KEY_torrent_archive, { torrentArchive, true } },
     { TR_KEY_torrent_rename_path, { torrentRenamePath, true } },
 } };
+
+[[nodiscard]] auto const& script_handlers()
+{
+    static auto const map = small::max_size_map<tr_quark, std::pair<SyncHandler, bool /*has_side_effects*/>, 6U>{ {
+        { tr_quark_new("script_cancel"), { scriptCancel, true } },
+        { tr_quark_new("script_restart_daemon"), { scriptRestartDaemon, true } },
+        { tr_quark_new("script_run"), { scriptRun, true } },
+        { tr_quark_new("script_settings_get"), { scriptSettingsGet, false } },
+        { tr_quark_new("script_settings_set"), { scriptSettingsSet, true } },
+        { tr_quark_new("script_status"), { scriptStatus, false } },
+    } };
+    return map;
+}
 
 void noop_response_callback(tr_variant&& /*response*/)
 {
@@ -3932,6 +4051,20 @@ void tr_rpc_request_exec_impl(
     }
 
     auto const is_notification = is_jsonrpc && !data->id.has_value();
+
+    if (auto const handler = script_handlers().find(method_key); handler != std::end(script_handlers()))
+    {
+        auto const& [func, has_side_effects] = handler->second;
+        if (is_notification && !has_side_effects)
+        {
+            tr_rpc_idle_done(data, Error::SUCCESS, {});
+            return;
+        }
+
+        auto const [err, errmsg] = func(session, *params, data->args_out);
+        tr_rpc_idle_done(data, err, errmsg);
+        return;
+    }
 
     if (auto const handler = async_handlers.find(method_key); handler != std::end(async_handlers))
     {

@@ -20,6 +20,7 @@ public:
     explicit tr_session_id(current_time_func_t get_current_time)
         : get_current_time_{ get_current_time }
     {
+        cleanup_stale_lockfiles();
     }
 
     tr_session_id(tr_session_id&&) = delete;
@@ -48,6 +49,7 @@ private:
 
     using session_id_t = std::array<char, SessionIdSize + 1>; // add one for '\0'
     [[nodiscard]] static session_id_t make_session_id();
+    static void cleanup_stale_lockfiles();
 
     current_time_func_t const get_current_time_;
 

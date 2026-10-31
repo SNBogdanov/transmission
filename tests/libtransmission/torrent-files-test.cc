@@ -15,6 +15,7 @@
 
 #include <libtransmission/transmission.h>
 
+#include <libtransmission/error.h>
 #include <libtransmission/file.h>
 #include <libtransmission/torrent-files.h>
 #include <libtransmission/torrent-metainfo.h>
@@ -161,6 +162,42 @@ TEST_F(TorrentFilesTest, mimeTypeVideoMp4)
     EXPECT_EQ("video/mp4"sv, files.primary_mime_type());
 }
 
+TEST_F(TorrentFilesTest, moveCompletedPartialRenamesBeforeMoving)
+{
+    auto const old_dir = tr_pathbuf{ sandboxDir(), "/old"sv };
+    auto const new_dir = tr_pathbuf{ sandboxDir(), "/new"sv };
+    auto const old_partial = tr_pathbuf{ old_dir, "/torrent/file.mp4.part"sv };
+    auto const new_file = tr_pathbuf{ new_dir, "/torrent/file.mp4"sv };
+    createFileWithContents(old_partial.sv(), "hello"sv);
+
+    auto files = tr_torrent_files{};
+    files.add("torrent/file.mp4"sv, 5U);
+
+    auto error = tr_error{};
+    EXPECT_TRUE(files.move(old_dir.sv(), new_dir.sv(), "torrent"sv, &error, false, true, true));
+    EXPECT_FALSE(error);
+    EXPECT_TRUE(tr_sys_path_exists(new_file.sv()));
+    EXPECT_FALSE(tr_sys_path_exists(old_partial.sv()));
+    EXPECT_FALSE(tr_sys_path_exists(tr_pathbuf{ old_dir, "/torrent/file.mp4"sv }.sv()));
+}
+
+TEST_F(TorrentFilesTest, moveIncompletePartialLeavesFileInPlace)
+{
+    auto const old_dir = tr_pathbuf{ sandboxDir(), "/old"sv };
+    auto const new_dir = tr_pathbuf{ sandboxDir(), "/new"sv };
+    auto const old_partial = tr_pathbuf{ old_dir, "/torrent/file.mp4.part"sv };
+    auto const new_file = tr_pathbuf{ new_dir, "/torrent/file.mp4"sv };
+    createFileWithContents(old_partial.sv(), "hello"sv);
+
+    auto files = tr_torrent_files{};
+    files.add("torrent/file.mp4"sv, 5U);
+
+    auto error = tr_error{};
+    EXPECT_TRUE(files.move(old_dir.sv(), new_dir.sv(), "torrent"sv, &error, false, false, true));
+    EXPECT_FALSE(error);
+    EXPECT_TRUE(tr_sys_path_exists(old_partial.sv()));
+    EXPECT_FALSE(tr_sys_path_exists(new_file.sv()));
+}
 TEST_F(TorrentFilesTest, isSubpathPortable)
 {
     static auto constexpr NotWin32 = TR_IF_WIN32(false, true);

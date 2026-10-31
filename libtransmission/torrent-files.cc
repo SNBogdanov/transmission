@@ -191,13 +191,15 @@ bool tr_torrent_files::move(
     std::string_view parent_in,
     std::string_view parent_name,
     tr_error* error,
-    bool move_partial_files) const
+    bool move_partial_files,
+    bool torrent_is_done,
+    bool rename_partial_files) const
 {
     auto const old_parent = tr_pathbuf{ old_parent_in };
     auto const parent = tr_pathbuf{ parent_in };
     tr_logAddTrace(fmt::format("Moving files from '{:s}' to '{:s}'", old_parent, parent), parent_name);
 
-    if (tr_sys_path_is_same(old_parent, parent))
+    if (tr_sys_path_is_same(old_parent, parent) && !(torrent_is_done && rename_partial_files))
     {
         return true;
     }
@@ -219,16 +221,33 @@ bool tr_torrent_files::move(
             continue;
         }
 
+        auto const is_partial = tr_strv_ends_with(found->filename().sv(), PartialFileSuffix);
+
         /* Keep .part files in the source directory when partial-file moves
          * are disabled: they are still needed for seeding and copying them
-         * to a different filesystem allocates the full file size there. */
-        if (!move_partial_files && tr_strv_ends_with(found->filename().sv(), PartialFileSuffix))
+         * to a different filesystem allocates the full file size there.
+         * A completed torrent is the exception: rename the finished .part
+         * in place first, then move the completed file to its destination. */
+        if (!move_partial_files && is_partial && !(torrent_is_done && rename_partial_files))
         {
             continue;
         }
 
-        auto const& old_path = found->filename();
+        auto old_path = std::string{ found->filename().sv() };
         auto const path = tr_pathbuf{ parent, '/', found->subpath() };
+
+        if (!move_partial_files && is_partial)
+        {
+            auto const renamed_path = tr_pathbuf{ old_parent, '/', found->subpath() };
+            if (!tr_sys_path_is_same(old_path, renamed_path.sv()) &&
+                !tr_file_move(old_path, renamed_path, false, error))
+            {
+                err = true;
+                break;
+            }
+            old_path = std::string{ renamed_path.sv() };
+        }
+
         tr_logAddTrace(fmt::format("Found file #{:d} '{:s}'", i, old_path), parent_name);
 
         if (tr_sys_path_is_same(old_path, path))

@@ -3,7 +3,26 @@
 ## Workflow
 
 - After code changes, ask whether a build is needed. Do not build silently.
+- **Build/deploy only via subagents** `transmission-build` / `transmission-deploy`.
+  The main session does not run `cmake`/`ssh`/copy commands itself: it asks for targets,
+  invokes the agent, and reads the report. This preserves the agents' guardrails
+  (`edit: deny`, no commit/push, VPN/local-network checks).
+- **Pass all targets of the current stage to the agent at once** (e.g. `Windows, Linux, QNAP`
+  or `transmission, qnap, sergeybo02, samsung-pc`). The agent runs them in one invocation;
+  the main session must not build/deploy between targets. After a test confirmation, the
+  main session invokes the agent again with the remaining targets.
+- **Before building, ask which targets to build** (`Windows` / `Linux` / `QNAP`) **and
+  whether debugging is needed** (and on which machine). Do not assume "all targets"; do not
+  start the build until both answers are known. If debugging is needed, build only that
+  target's binary first.
+- Ask whether we will debug the change and on which machine. If debugging is needed, build and deploy only the single binary for that target first.
+- Build **Windows first** and fix all Windows build errors before building Linux or QNAP.
+- After a successful Windows build, deploy only the selected debug target (if any) and wait for confirmation that testing passed.
+- After confirmed successful testing, ask before building and deploying to all remaining targets.
 - Before building or deploying, stop the daemon and any process that locks the target binary.
+- Before deploying, check whether the daemon/service is running (`systemctl is-active` /
+  `Get-Service`) and stop it before copying. For services, use stop/start — never rename a
+  running daemon binary in place.
 - After a successful build, ask whether deployment is needed and which targets to use.
 - Never store passwords, tokens, or private keys in this file. Read them from environment variables or a secret store.
 - Record deployments in the final response: what was stopped, what was backed up, what was copied, and the verification result.
@@ -50,6 +69,9 @@ The deployable artifact is always `transmission-daemon`.
 After the build, ask whether to deploy and to which of the targets below.
 
 ## Deployment
+
+- **Keep at most 2 backups per binary.** After a successful deploy and verification, delete older backups and keep only the two newest timestamped copies.
+- Never delete the active binary or a backup that has not yet been verified.
 
 ### 1. transmission server
 

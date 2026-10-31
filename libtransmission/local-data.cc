@@ -194,7 +194,14 @@ public:
         }
 
         auto error = tr_error{};
-        if (!tor->files().move(old_parent, parent, parent_name, &error, tor->session->movePartialFilesEnabled()))
+        if (!tor->files().move(
+                old_parent,
+                parent,
+                parent_name,
+                &error,
+                tor->session->movePartialFilesEnabled(),
+                tor->is_done(),
+                tor->session->isIncompleteFileNamingEnabled()))
         {
             return error ? error.code() : EIO;
         }

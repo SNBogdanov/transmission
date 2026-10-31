@@ -1,0 +1,275 @@
+{
+  "schema": "transgui-script-runner/v1",
+  "enabled": true,
+  "max_concurrent": 1,
+  "queue_limit": 16,
+  "queue_limit_per_client": 4,
+  "max_concurrent_per_client": 1,
+  "job_retention_seconds": 3600,
+  "max_retained_jobs": 64,
+  "max_total_output_bytes": 67108864,
+  "max_output_bytes_default": 1048576,
+  "max_selection_items": 10000,
+  "max_payload_bytes": 8388608,
+  "rpc_netrc_file": "/root/.netrc",
+  "external_hosts": [
+    {
+      "id": "huawei",
+      "name": "HUAWEI",
+      "description": "HUAWEI Transmission",
+      "rpc_url": "http://huawei:9091/transmission/rpc",
+      "netrc_machine": "huawei"
+    },
+    {
+      "id": "qnap",
+      "name": "QNAP",
+      "description": "QNAP Transmission",
+      "rpc_url": "http://qnap:9091/transmission/rpc",
+      "netrc_machine": "qnap"
+    },
+    {
+      "id": "samsung-pc",
+      "name": "SAMSUNG-PC",
+      "description": "Samsung Windows Transmission",
+      "rpc_url": "http://samsung-pc:9091/transmission/rpc",
+      "netrc_machine": "samsung-pc"
+    },
+    {
+      "id": "transmission",
+      "name": "TRANSMISSION",
+      "description": "transmission server",
+      "rpc_url": "http://transmission:9091/transmission/rpc",
+      "netrc_machine": "transmission"
+    }
+  ],
+  "restart_daemon": {
+    "enabled": true,
+    "context": "system",
+    "helper": "/usr/bin/systemctl",
+    "args": ["restart", "transmission-daemon"],
+    "cwd": "/",
+    "timeout_seconds": 30,
+    "delay_seconds": 2,
+    "cooldown_seconds": 60
+  },
+  "scripts": [
+    {
+      "id": "torrent-priority",
+      "name": "Set priority on torrent files",
+      "group": "Torrents",
+      "order": 10,
+      "enabled": true,
+      "platform": "linux",
+      "contexts": ["torrent"],
+      "requires_selection": true,
+      "confirm": false,
+      "parameters": [
+        {"key": "max_high", "name": "Max high priority files", "storage": "runtime", "type": "integer", "default": 1000, "min": 0},
+        {"key": "by_ratio", "name": "Sort by ratio", "storage": "runtime", "type": "boolean", "default": false},
+        {"key": "by_remain", "name": "Sort by remaining size", "storage": "runtime", "type": "boolean", "default": false}
+      ],
+      "payload": "transgui.script/v1",
+      "stdin": "json",
+      "executable": "/usr/bin/php",
+      "args": ["/share/Video/RSS/priority.php"],
+      "cwd": "/share/Video/RSS",
+      "timeout_seconds": 300
+    },
+    {
+      "id": "torrent-make-nice",
+      "name": "Make Nice",
+      "group": "Torrents",
+      "order": 20,
+      "enabled": true,
+      "platform": "linux",
+      "contexts": ["torrent"],
+      "requires_selection": true,
+      "parameters": [
+        {"key": "dir", "name": "Create nice directories", "storage": "runtime", "type": "boolean", "default": false}
+      ],
+      "payload": "transgui.script/v1",
+      "stdin": "json",
+      "executable": "/usr/bin/php",
+      "args": ["/share/Video/RSS/make_nice.php"],
+      "cwd": "/share/Video/RSS",
+      "timeout_seconds": 300
+    },
+    {
+      "id": "torrent-make-part",
+      "name": "Make .part file",
+      "group": "Torrents",
+      "order": 30,
+      "enabled": true,
+      "platform": "linux",
+      "contexts": ["torrent"],
+      "requires_selection": true,
+      "parameters": [
+        {"key": "full", "name": "Create full torrent structure", "storage": "runtime", "type": "boolean", "default": false},
+        {"key": "allocate", "name": "Allocate file size", "storage": "runtime", "type": "boolean", "default": true},
+        {"key": "wanted", "name": "Create only wanted files", "storage": "runtime", "type": "boolean", "default": true}
+      ],
+      "payload": "transgui.script/v1",
+      "stdin": "json",
+      "executable": "/usr/bin/php",
+      "args": ["/share/Video/RSS/make_part.php"],
+      "cwd": "/share/Video/RSS",
+      "timeout_seconds": 900
+    },
+    {
+      "id": "torrent-clear-part",
+      "name": "Clear .part file",
+      "group": "Torrents",
+      "order": 40,
+      "enabled": true,
+      "platform": "linux",
+      "contexts": ["torrent"],
+      "requires_selection": true,
+      "parameters": [
+        {"key": "keep_wanted", "name": "Keep wanted files", "storage": "runtime", "type": "boolean", "default": false}
+      ],
+      "payload": "transgui.script/v1",
+      "stdin": "json",
+      "executable": "/usr/bin/php",
+      "args": ["/share/Video/RSS/clear_part.php"],
+      "cwd": "/share/Video/RSS",
+      "timeout_seconds": 300
+    },
+    {
+      "id": "torrent-move-ready",
+      "name": "Move Ready",
+      "group": "Torrents",
+      "order": 50,
+      "enabled": true,
+      "platform": "linux",
+      "contexts": ["torrent"],
+      "requires_selection": true,
+      "confirm": true,
+      "parameters": [
+        {"key": "remove_part", "name": "Remove part files", "storage": "runtime", "type": "boolean", "default": false},
+        {"key": "make_thumb", "name": "Make thumb", "storage": "runtime", "type": "boolean", "default": false},
+        {"key": "make_jpg", "name": "Create thumbnail image", "storage": "runtime", "type": "boolean", "default": false},
+        {"key": "make_txt", "name": "Create txt description", "storage": "runtime", "type": "boolean", "default": false},
+        {"key": "make_sfv", "name": "Create sfv checksum", "storage": "runtime", "type": "boolean", "default": false},
+        {"key": "description", "name": "Create descriptions via DescriptionMedia", "storage": "runtime", "type": "boolean", "default": false},
+        {"key": "ignore", "name": "Ignore move errors", "storage": "runtime", "type": "boolean", "default": false},
+        {"key": "nospace", "name": "Ignore free space limits", "storage": "runtime", "type": "boolean", "default": false}
+      ],
+      "payload": "transgui.script/v1",
+      "stdin": "json",
+      "executable": "/usr/bin/php",
+      "args": ["/share/Video/RSS/tr_finish.php", "-m"],
+      "cwd": "/share/Video/RSS",
+      "timeout_seconds": 1800
+    },
+    {
+      "id": "torrent-finish",
+      "name": "Finish Torrent",
+      "group": "Torrents",
+      "order": 60,
+      "enabled": true,
+      "platform": "linux",
+      "contexts": ["torrent"],
+      "requires_selection": true,
+      "confirm": true,
+      "parameters": [
+        {"key": "remove_part", "name": "Remove part files", "storage": "runtime", "type": "boolean", "default": false},
+        {"key": "make_thumb", "name": "Make thumb", "storage": "runtime", "type": "boolean", "default": false},
+        {"key": "make_jpg", "name": "Create thumbnail image", "storage": "runtime", "type": "boolean", "default": false},
+        {"key": "make_txt", "name": "Create txt description", "storage": "runtime", "type": "boolean", "default": false},
+        {"key": "make_sfv", "name": "Create sfv checksum", "storage": "runtime", "type": "boolean", "default": false},
+        {"key": "description", "name": "Create descriptions via DescriptionMedia", "storage": "runtime", "type": "boolean", "default": false},
+        {"key": "ignore", "name": "Ignore move errors", "storage": "runtime", "type": "boolean", "default": false},
+        {"key": "nospace", "name": "Ignore free space limits", "storage": "runtime", "type": "boolean", "default": false}
+      ],
+      "payload": "transgui.script/v1",
+      "stdin": "json",
+      "executable": "/usr/bin/php",
+      "args": ["/share/Video/RSS/tr_finish.php", "-f"],
+      "cwd": "/share/Video/RSS",
+      "timeout_seconds": 1800
+    },
+    {
+      "id": "torrent-import-whisparr",
+      "name": "Import to Whisparr",
+      "group": "Torrents",
+      "order": 70,
+      "enabled": true,
+      "platform": "linux",
+      "contexts": ["torrent"],
+      "requires_selection": true,
+      "confirm": true,
+      "parameters": [
+        {"key": "make_thumb", "name": "Make thumbnails", "storage": "runtime", "type": "boolean", "default": true},
+        {"key": "rename_temp", "name": "Rename temporary files", "storage": "runtime", "type": "boolean", "default": true},
+        {"key": "qb_host", "name": "qBittorrent host", "storage": "host", "type": "string", "default": "localhost"}
+      ],
+      "payload": "transgui.script/v1",
+      "stdin": "json",
+      "executable": "/usr/bin/php",
+      "args": ["/share/Video/RSS/import2whisparr.php"],
+      "cwd": "/share/Video/RSS",
+      "timeout_seconds": 3600
+    },
+    {
+      "id": "torrent-sort",
+      "name": "Sort torrents",
+      "group": "Torrents",
+      "order": 80,
+      "enabled": true,
+      "platform": "linux",
+      "contexts": ["torrent"],
+      "requires_selection": false,
+      "parameters": [
+        {"key": "reverse", "name": "Reverse order", "storage": "runtime", "type": "boolean", "default": false},
+        {"key": "remain", "name": "Sort by remaining", "storage": "runtime", "type": "boolean", "default": false},
+        {"key": "comment", "name": "Sort by comment", "storage": "runtime", "type": "boolean", "default": false}
+      ],
+      "payload": "transgui.script/v1",
+      "stdin": "json",
+      "executable": "/usr/bin/php",
+      "args": ["/share/Video/RSS/sort.php"],
+      "cwd": "/share/Video/RSS",
+      "timeout_seconds": 300
+    },
+    {
+      "id": "torrent-copy-to-host",
+      "name": "Copy torrents to host",
+      "group": "Orchestration",
+      "order": 90,
+      "enabled": true,
+      "platform": "linux",
+      "contexts": ["torrent"],
+      "requires_selection": true,
+      "confirm": true,
+      "parameters": [
+        {"key": "target", "name": "Target host", "storage": "runtime", "type": "host", "required": true, "hosts": ["huawei", "qnap", "samsung-pc", "transmission"]},
+        {"key": "path", "name": "Destination path", "storage": "runtime", "type": "string", "default": ""},
+        {"key": "run", "name": "Start download", "storage": "runtime", "type": "boolean", "default": false}
+      ],
+      "payload": "transgui.script/v1",
+      "stdin": "json",
+      "executable": "/usr/bin/php",
+      "args": ["/share/Video/RSS/copy_to.php"],
+      "cwd": "/share/Video/RSS",
+      "timeout_seconds": 3600
+    },
+    {
+      "id": "file-delete",
+      "name": "Delete file",
+      "group": "Files",
+      "order": 10,
+      "enabled": true,
+      "platform": "linux",
+      "contexts": ["file"],
+      "requires_selection": true,
+      "confirm": true,
+      "parameters": [],
+      "payload": "transgui.script/v1",
+      "stdin": "json",
+      "executable": "/usr/bin/php",
+      "args": ["/share/Video/RSS/delete.php"],
+      "cwd": "/share/Video/RSS",
+      "timeout_seconds": 300
+    }
+  ]
+}

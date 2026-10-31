@@ -48,6 +48,7 @@
 #include "libtransmission/quark.h"
 #include "libtransmission/rpc-server.h"
 #include "libtransmission/rpcimpl.h"
+#include "libtransmission/script-runner.h"
 #include "libtransmission/session-alt-speeds.h"
 #include "libtransmission/session.h"
 #include "libtransmission/string-utils.h"
@@ -2793,6 +2794,7 @@ tr_session::tr_session(std::string_view config_dir, tr_variant const& settings_d
     , archive_dir_{ makeArchiveDir(config_dir) }
     , archive_exports_dir_{ makeArchiveExportsDir(archive_dir_) }
     , blocklist_dir_{ makeBlocklistDir(config_dir) }
+    , script_runner_{ std::make_unique<tr_script_runner>(config_dir) }
     , session_thread_{ tr_session_thread::create() }
     , timer_maker_{ std::make_unique<tr::EvTimerMaker>(event_base()) }
     , settings_{ settings_dict }
@@ -2807,6 +2809,8 @@ tr_session::tr_session(std::string_view config_dir, tr_variant const& settings_d
     queue_timer_->start_repeating(QueueInterval);
     save_timer_->start_repeating(SaveInterval);
 }
+
+tr_session::~tr_session() = default;
 
 void tr_session::addIncoming(std::shared_ptr<tr_peer_socket> socket)
 {

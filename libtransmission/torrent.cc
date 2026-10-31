@@ -1020,7 +1020,7 @@ void tr_torrent::pause_for_space()
     space_paused_ = true;
 
     auto const lock = unique_lock();
-    start_when_stable_ = false;
+    start_when_stable_ = true;
     set_dirty();
     session->run_in_session_thread([this]() { stop_now(); });
 }

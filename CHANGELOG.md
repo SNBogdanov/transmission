@@ -19,4 +19,6 @@
 ### Fixed
 
 - Archive entries keep the display names stored in their `.resume` files.
+- Torrents paused by the minimum-free-space guard keep their run intent across
+  daemon restarts.
 - Reduced memory pressure by capping pending writes and applying backpressure.

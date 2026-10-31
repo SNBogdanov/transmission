@@ -12,6 +12,7 @@
 #endif
 
 #include <fmt/format.h>
+#include <mutex>
 
 #include "libtransmission/crypto-utils.h" // for tr_rand_obj()
 #include "libtransmission/error-types.h"
@@ -20,6 +21,7 @@
 #include "libtransmission/log.h"
 #include "libtransmission/platform.h"
 #include "libtransmission/session-id.h"
+#include "libtransmission/string-utils.h"
 #include "libtransmission/tr-strbuf.h" // for tr_pathbuf
 #include "libtransmission/utils.h" // for _()
 
@@ -98,6 +100,53 @@ auto constexpr WouldBlock = ERROR_LOCK_VIOLATION;
 
 } // namespace
 
+void tr_session_id::cleanup_stale_lockfiles()
+{
+    static auto once = std::once_flag{};
+    std::call_once(
+        once,
+        []()
+        {
+            auto const dir = tr_getSessionIdDir();
+            auto const files = tr_sys_dir_get_files(
+                dir,
+                [](std::string_view const name)
+                {
+                    return std::size(name) == 14U + SessionIdSize &&
+                        tr_strv_starts_with(name, "tr_session_id_"sv);
+                });
+
+            for (auto const& name : files)
+            {
+                auto const path = tr_pathbuf{ dir, '/', name };
+                auto error = tr_error{};
+                auto fd = tr_sys_file_open(
+                    path,
+                    TR_SYS_FILE_READ | TR_SYS_FILE_WRITE,
+                    0,
+                    &error);
+                if (fd == TR_BAD_SYS_FILE)
+                {
+                    error = {};
+                    fd = tr_sys_file_open(path, TR_SYS_FILE_READ, 0, &error);
+                }
+                if (fd == TR_BAD_SYS_FILE)
+                {
+                    continue;
+                }
+
+                if (tr_sys_file_lock(fd, TR_SYS_FILE_LOCK_EX | TR_SYS_FILE_LOCK_NB, &error))
+                {
+                    tr_sys_file_close(fd);
+                    tr_sys_path_remove(path);
+                }
+                else
+                {
+                    tr_sys_file_close(fd);
+                }
+            }
+        });
+}
 tr_session_id::session_id_t tr_session_id::make_session_id()
 {
     auto session_id = tr_rand_obj<session_id_t>();

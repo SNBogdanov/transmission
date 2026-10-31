@@ -113,7 +113,9 @@ public:
         std::string_view parent_in,
         std::string_view parent_name = "",
         tr_error* error = nullptr,
-        bool move_partial_files = true) const;
+        bool move_partial_files = true,
+        bool torrent_is_done = false,
+        bool rename_partial_files = true) const;
 
     void remove(
         std::string_view parent_in,
