@@ -2663,14 +2663,28 @@ void tr_torrent::apply_auto_priorities()
             });
     }
 
-    auto const n_high = std::min<size_t>(std::size(candidates), session->autoPriorityMaxHigh());
-    auto const n_normal = (std::size(candidates) - n_high) / 2U;
-
     auto desired = std::vector<tr_priority_t>(n_files, TR_PRI_NORMAL);
-    for (size_t i = 0, n = std::size(candidates); i < n; ++i)
+
+    auto const n_candidates = std::size(candidates);
+    auto n_high = size_t{ 0 };
+    if (n_candidates > 1U)
     {
-        desired[candidates[i]] = i < n_high ? TR_PRI_HIGH : i < n_high + n_normal ? TR_PRI_NORMAL : TR_PRI_LOW;
+        // Split the sorted candidates into thirds. The first third gets high
+        // priority, unless it is larger than the configured maximum.
+        auto const n_first = (n_candidates + 2U) / 3U;
+        n_high = std::min(n_first, session->autoPriorityMaxHigh());
+
+        // When the first third is capped, its leftovers are merged with the
+        // second and third parts, then split again into normal and low.
+        auto const n_remaining = n_candidates - n_high;
+        auto const n_normal = (n_remaining + 1U) / 2U;
+
+        for (size_t i = 0; i < n_candidates; ++i)
+        {
+            desired[candidates[i]] = i < n_high ? TR_PRI_HIGH : i < n_high + n_normal ? TR_PRI_NORMAL : TR_PRI_LOW;
+        }
     }
+    // A single remaining file always keeps normal priority.
 
     auto low = std::vector<tr_file_index_t>{};
     auto normal = std::vector<tr_file_index_t>{};

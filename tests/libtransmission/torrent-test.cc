@@ -178,8 +178,54 @@ TEST_F(TorrentTest, autoPriorityKeepsUnwantedNormal)
 
     EXPECT_TRUE(tor->auto_priority());
     EXPECT_EQ(TR_PRI_NORMAL, tr_torrentFile(tor, unwanted).priority);
-    EXPECT_EQ(TR_PRI_LOW, tr_torrentFile(tor, 1U).priority);
+    EXPECT_EQ(TR_PRI_NORMAL, tr_torrentFile(tor, 1U).priority);
     EXPECT_EQ(TR_PRI_HIGH, tr_torrentFile(tor, 2U).priority);
+}
+
+TEST_F(TorrentTest, autoPriorityUsesThirdsWhenMaxHighIsLarge)
+{
+    session_->setAutoPriorityEnabled(true);
+    session_->setAutoPriorityMaxHigh(100U);
+    session_->setAutoPrioritySort(TR_AUTO_PRIORITY_SORT_SIZE);
+
+    auto* const tor = zeroTorrentInit(ZeroTorrentState::NoFiles);
+    ASSERT_NE(nullptr, tor);
+    ASSERT_EQ(3U, tor->file_count());
+
+    EXPECT_EQ(TR_PRI_HIGH, tr_torrentFile(tor, 2U).priority);
+    EXPECT_EQ(TR_PRI_NORMAL, tr_torrentFile(tor, 1U).priority);
+    EXPECT_EQ(TR_PRI_LOW, tr_torrentFile(tor, 0U).priority);
+}
+
+TEST_F(TorrentTest, autoPrioritySplitsRemainderWhenMaxHighIsZero)
+{
+    session_->setAutoPriorityEnabled(true);
+    session_->setAutoPriorityMaxHigh(0U);
+    session_->setAutoPrioritySort(TR_AUTO_PRIORITY_SORT_SIZE);
+
+    auto* const tor = zeroTorrentInit(ZeroTorrentState::NoFiles);
+    ASSERT_NE(nullptr, tor);
+    ASSERT_EQ(3U, tor->file_count());
+
+    EXPECT_EQ(TR_PRI_NORMAL, tr_torrentFile(tor, 2U).priority);
+    EXPECT_EQ(TR_PRI_NORMAL, tr_torrentFile(tor, 1U).priority);
+    EXPECT_EQ(TR_PRI_LOW, tr_torrentFile(tor, 0U).priority);
+}
+
+TEST_F(TorrentTest, autoPriorityKeepsSingleFileNormal)
+{
+    session_->setAutoPriorityEnabled(true);
+    session_->setAutoPriorityMaxHigh(10U);
+    session_->setAutoPrioritySort(TR_AUTO_PRIORITY_SORT_SIZE);
+
+    auto* const tor = zeroTorrentInit(ZeroTorrentState::NoFiles);
+    ASSERT_NE(nullptr, tor);
+    ASSERT_EQ(3U, tor->file_count());
+
+    auto const unwanted = std::array{ tr_file_index_t{ 0U }, tr_file_index_t{ 2U } };
+    tor->set_files_wanted(std::data(unwanted), std::size(unwanted), false);
+
+    EXPECT_EQ(TR_PRI_NORMAL, tr_torrentFile(tor, 1U).priority);
 }
 
 TEST_F(TorrentTest, autoPriorityKeepsCompletedNormal)

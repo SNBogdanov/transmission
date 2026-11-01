@@ -17,9 +17,11 @@
   force-finish-partial-files settings.
 - Auto-priority per torrent (`auto_priority`) with session defaults
   `auto_priority_enabled`, `auto_priority_max_high`, and `auto_priority_sort`.
-  Wanted incomplete files are sorted by id, name, or size; unwanted and
-  completed files stay normal. Manual file-priority changes disable it until
-  it is re-enabled via `torrent-set`.
+  Wanted incomplete files are sorted by id, name, or size and split into
+  thirds, with the high-priority group capped by `auto_priority_max_high`;
+  a single remaining file stays normal. Unwanted and completed files stay
+  normal. Manual file-priority changes disable it until it is re-enabled via
+  `torrent-set`.
 
 ### Fixed
 
