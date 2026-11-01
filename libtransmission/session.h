@@ -623,6 +623,9 @@ public:
         settings_.auto_priority_sort = sort;
     }
 
+    // Recompute file priorities for every torrent that has auto_priority enabled.
+    void refreshAutoPriorities();
+
     [[nodiscard]] constexpr bool moveCompletedTorrentsEnabled() const noexcept
     {
         return settings_.move_completed_torrents_enabled;

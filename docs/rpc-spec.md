@@ -815,8 +815,8 @@ also return `size` (number) and `sha256` (string) for the uploaded bundle.
 | `alt_speed_up` | number | max global upload speed (kB/s)
 | `anti_brute_force_enabled` | boolean | true means to enable a basic brute force protection for RPC server
 | `auto_priority_enabled` | boolean | default `auto_priority` value for newly added torrents (fork extension)
-| `auto_priority_max_high` | number | maximum number of files that get the highest priority; the first third is capped by this value (fork extension)
-| `auto_priority_sort` | string | file sort order for auto-priority: `id`, `name`, or `size` (fork extension)
+| `auto_priority_max_high` | number | maximum number of files that get the highest priority; the first third is capped by this value. Changing it re-applies priorities to torrents with `auto_priority` enabled (fork extension)
+| `auto_priority_sort` | string | file sort order for auto-priority: `id`, `name`, or `size`. Changing it re-applies priorities to torrents with `auto_priority` enabled (fork extension)
 | `blocklist_enabled` | boolean | true means enabled
 | `blocklist_size` | number | number of rules in the blocklist
 | `blocklist_url` | string | location of the blocklist to use for `blocklist_update`

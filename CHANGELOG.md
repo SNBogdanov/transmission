@@ -21,7 +21,9 @@
   thirds, with the high-priority group capped by `auto_priority_max_high`;
   a single remaining file stays normal. Unwanted and completed files stay
   normal. Manual file-priority changes disable it until it is re-enabled via
-  `torrent-set`.
+  `torrent-set`. Changing `auto_priority_max_high` or `auto_priority_sort` via
+  `session-set` immediately re-applies priorities to torrents that have
+  `auto_priority` enabled.
 
 ### Fixed
 

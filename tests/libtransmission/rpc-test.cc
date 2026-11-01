@@ -929,4 +929,31 @@ TEST_F(RpcTest, DISABLED_wellFormedLegacyFreeSpace)
 }
 } // namespace free_space_test
 
+TEST_F(RpcTest, sessionSetRefreshesAutoPriority)
+{
+    makeRequest(
+        session_,
+        R"json({"method":"session-set","arguments":{"auto_priority_enabled":true,"auto_priority_max_high":1,"auto_priority_sort":"id"}})json"sv);
+
+    auto* const tor = zeroTorrentInit(ZeroTorrentState::NoFiles);
+    ASSERT_NE(nullptr, tor);
+    ASSERT_EQ(3U, tr_torrentFileCount(tor));
+
+    EXPECT_EQ(TR_PRI_HIGH, tr_torrentFile(tor, 0U).priority);
+    EXPECT_EQ(TR_PRI_NORMAL, tr_torrentFile(tor, 1U).priority);
+    EXPECT_EQ(TR_PRI_LOW, tr_torrentFile(tor, 2U).priority);
+
+    makeRequest(session_, R"json({"method":"session-set","arguments":{"auto_priority_sort":"size"}})json"sv);
+
+    EXPECT_EQ(TR_PRI_LOW, tr_torrentFile(tor, 0U).priority);
+    EXPECT_EQ(TR_PRI_NORMAL, tr_torrentFile(tor, 1U).priority);
+    EXPECT_EQ(TR_PRI_HIGH, tr_torrentFile(tor, 2U).priority);
+
+    makeRequest(session_, R"json({"method":"session-set","arguments":{"auto_priority_max_high":0}})json"sv);
+
+    EXPECT_EQ(TR_PRI_LOW, tr_torrentFile(tor, 0U).priority);
+    EXPECT_EQ(TR_PRI_NORMAL, tr_torrentFile(tor, 1U).priority);
+    EXPECT_EQ(TR_PRI_NORMAL, tr_torrentFile(tor, 2U).priority);
+}
+
 } // namespace tr::test

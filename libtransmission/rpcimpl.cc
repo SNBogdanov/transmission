@@ -3029,6 +3029,11 @@ using SessionAccessors = std::pair<SessionGetter, SessionSetter>;
         }
     }
 
+    if (err == error_none && (params.contains(TR_KEY_auto_priority_max_high) || params.contains(TR_KEY_auto_priority_sort)))
+    {
+        session->refreshAutoPriorities();
+    }
+
     session->rpcNotify(TR_RPC_SESSION_CHANGED);
 
     if (err == error_none && !std::empty(params))

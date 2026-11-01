@@ -751,6 +751,17 @@ void tr_session::setMinFreeSpaceResumeMargin(std::string_view const spec)
     reloadMinFreeSpace();
 }
 
+void tr_session::refreshAutoPriorities()
+{
+    for (auto* const tor : torrents_.get_all())
+    {
+        if (tor != nullptr && tor->auto_priority())
+        {
+            tor->apply_auto_priorities();
+        }
+    }
+}
+
 std::optional<uint64_t> tr_session::minFreeSpaceFor(std::string_view const dir) const
 {
     auto rules = std::vector<tr_min_free_space_rule>{};
