@@ -38,4 +38,5 @@
 - Corrupt pieces are no longer re-requested from the peers that contributed to
   them. The exclusion is remembered per peer address and survives reconnects
   from another port. Only a peer that contributes to five distinct bad pieces
-  is banned for the torrent.
+  is banned for the torrent. Peer bans are lifted on the next successful
+  tracker announce, so a temporarily bad peer gets another chance.

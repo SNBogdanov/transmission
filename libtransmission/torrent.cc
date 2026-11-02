@@ -2805,10 +2805,13 @@ void tr_torrent::on_tracker_response(tr_tracker_event const* event)
     {
     case tr_tracker_event::Type::Peers:
         tr_logAddTraceTor(this, fmt::format("Got {} peers from tracker", std::size(event->pex)));
+        tr_peerMgrOnAnnounce(this);
         tr_peerMgrAddPex(this, TR_PEER_FROM_TRACKER, std::data(event->pex), std::size(event->pex));
         break;
 
     case tr_tracker_event::Type::Counts:
+        tr_peerMgrOnAnnounce(this);
+
         if (is_private() && (event->leechers == 0 || event->downloaders == 0))
         {
             swarm_is_all_upload_only_(this);

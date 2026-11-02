@@ -814,6 +814,22 @@ public:
         return iter != std::end(bad_pieces_by_address) && iter->second.test(piece);
     }
 
+    void clear_peer_bans()
+    {
+        // Give previously banned peers a clean slate, including the pieces
+        // that got them banned in the first place.
+        for (auto const& address : banned_peer_addresses)
+        {
+            bad_pieces_by_address.erase(address);
+        }
+        banned_peer_addresses.clear();
+
+        for (auto& [socket_address, peer_info] : connectable_pool)
+        {
+            peer_info->unban();
+        }
+    }
+
 private:
     void ban_address(tr_address const& address)
     {
@@ -1761,6 +1777,18 @@ void tr_peerMgrAddIncoming(tr_peerMgr* manager, std::shared_ptr<tr_peer_socket> 
             session->encryptionMode(),
             [manager](tr_handshake::Result const& result) { return on_handshake_done(manager, result); });
     }
+}
+
+void tr_peerMgrOnAnnounce(tr_torrent* tor)
+{
+    auto* const swarm = tor->swarm;
+    if (swarm == nullptr)
+    {
+        return;
+    }
+
+    auto const lock = swarm->manager->unique_lock();
+    swarm->clear_peer_bans();
 }
 
 // TODO(C++20): convert to std::span

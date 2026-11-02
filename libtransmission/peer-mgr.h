@@ -324,6 +324,11 @@ public:
         is_banned_ = true;
     }
 
+    constexpr void unban() noexcept
+    {
+        is_banned_ = false;
+    }
+
     [[nodiscard]] constexpr auto is_banned() const noexcept
     {
         return is_banned_;
@@ -709,6 +714,9 @@ void tr_peerMgrFree(tr_peerMgr* manager);
 void tr_peerMgrAddIncoming(tr_peerMgr* manager, std::shared_ptr<tr_peer_socket> socket);
 
 size_t tr_peerMgrAddPex(tr_torrent* tor, tr_peer_from from, tr_pex const* pex, size_t n_pex);
+
+// A successful tracker announce gives previously banned peers another chance.
+void tr_peerMgrOnAnnounce(tr_torrent* tor);
 
 // BEP 55: Record that a connected peer introduced the given endpoints via PEX.
 // The sender_socket_address is the relay's socket address (the peer who sent us the PEX message).
