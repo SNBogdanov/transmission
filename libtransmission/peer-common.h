@@ -12,6 +12,7 @@
 #include <array>
 #include <cstddef> // size_t
 #include <cstdint> // uint8_t, uint32_t, uint64_t
+#include <optional>
 #include <string>
 
 #include "libtransmission/bitfield.h"
@@ -226,6 +227,11 @@ struct tr_peer
 
     [[nodiscard]] virtual std::string display_name() const = 0;
 
+    [[nodiscard]] virtual std::optional<tr_address> address() const noexcept
+    {
+        return {};
+    }
+
     [[nodiscard]] virtual tr_bitfield const& has() const noexcept = 0;
 
     // requests that have been made but haven't been fulfilled yet
@@ -254,6 +260,10 @@ struct tr_peer
 
     // whether or not this peer sent us any given block
     tr_bitfield blame;
+
+    // pieces this peer sent us that failed the checksum test; don't ask
+    // this peer for these pieces again
+    tr_bitfield bad_pieces;
 
     // how many bad pieces this piece has contributed to
     uint8_t strikes = 0;

@@ -35,3 +35,7 @@
   so download clients do not import files too early. Seeding is paused during
   the move and resumed afterwards.
 - Reduced memory pressure by capping pending writes and applying backpressure.
+- Corrupt pieces are no longer re-requested from the peers that contributed to
+  them. The exclusion is remembered per peer address and survives reconnects
+  from another port. Only a peer that contributes to five distinct bad pieces
+  is banned for the torrent.

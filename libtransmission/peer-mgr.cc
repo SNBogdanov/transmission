@@ -12,9 +12,11 @@
 #include <cstdint>
 #include <ctime> // time_t
 #include <iterator> // std::back_inserter
+#include <map>
 #include <memory>
 #include <optional>
 #include <ranges>
+#include <set>
 #include <tuple> // std::tie
 #include <unordered_map>
 #include <utility>
@@ -756,6 +758,14 @@ public:
 
     Peers peers;
 
+    // pieces that peers from a given address sent us corrupt, keyed by address
+    // so the exclusion survives reconnects from a different port
+    std::map<tr_address, tr_bitfield> bad_pieces_by_address;
+
+    // peers from these addresses are banned for the lifetime of the torrent,
+    // even if they reconnect from a different port
+    std::set<tr_address> banned_peer_addresses;
+
     // depends-on: tor
     std::unique_ptr<WishlistController> wishlist_controller;
 
@@ -792,16 +802,30 @@ private:
         stats.active_webseed_count = 0;
     }
 
-    void add_strike(tr_peer* peer) const
+    [[nodiscard]] tr_bitfield& bad_pieces_for(tr_address const& address)
     {
-        tr_logAddTraceSwarm(
-            this,
-            fmt::format("increasing peer {} strike count to {}", peer->display_name(), peer->strikes + 1));
+        return bad_pieces_by_address.try_emplace(address, tor->piece_count()).first->second;
+    }
 
-        if (++peer->strikes >= MaxBadPiecesPerPeer)
+public:
+    [[nodiscard]] bool is_bad_piece(tr_address const& address, tr_piece_index_t piece) const
+    {
+        auto const iter = bad_pieces_by_address.find(address);
+        return iter != std::end(bad_pieces_by_address) && iter->second.test(piece);
+    }
+
+private:
+    void ban_address(tr_address const& address)
+    {
+        banned_peer_addresses.insert(address);
+
+        for (auto const& peer : peers)
         {
-            peer->ban();
-            tr_logAddTraceSwarm(this, fmt::format("banning peer {}", peer->display_name()));
+            auto const peer_address = peer->address();
+            if (peer_address && *peer_address == address)
+            {
+                peer->ban();
+            }
         }
     }
 
@@ -878,6 +902,13 @@ private:
             {
                 piece_came_from_peers = peer->blame.test(piece);
             }
+
+            peer->blame.unset(piece);
+        }
+
+        for (auto& webseed : webseeds)
+        {
+            webseed->blame.unset(piece);
         }
 
         if (piece_came_from_peers) /* webseed downloads don't belong in announce totals */
@@ -888,32 +919,57 @@ private:
 
     void on_got_bad_piece(tr_piece_index_t piece)
     {
-        auto const maybe_add_strike = [this, piece](tr_peer* const peer)
+        auto const record_bad_piece = [this, piece](tr_peer* const peer)
         {
-            if (peer->blame.test(piece))
+            if (!peer->blame.test(piece))
             {
-                tr_logAddTraceSwarm(
-                    this,
-                    fmt::format(
-                        "peer {} contributed to corrupt piece ({}); now has {} strikes",
-                        peer->display_name(),
-                        piece,
-                        peer->strikes + 1));
-                add_strike(peer);
+                peer->blame.unset(piece);
+                return;
             }
+
+            peer->bad_pieces.set(piece);
+            ++peer->strikes;
+            tr_logAddTraceSwarm(
+                this,
+                fmt::format(
+                    "peer {} contributed to corrupt piece ({}); now has {} strikes",
+                    peer->display_name(),
+                    piece,
+                    peer->strikes));
+
+            if (auto const address = peer->address(); address)
+            {
+                // Remember the bad piece by address so that reconnecting from
+                // a different port does not make us request it again.
+                auto& bad_pieces = bad_pieces_for(*address);
+                bad_pieces.set(piece);
+
+                if (bad_pieces.count() >= MaxBadPiecesPerPeer)
+                {
+                    tr_logAddTraceSwarm(this, fmt::format("banning peer {} by address", peer->display_name()));
+                    ban_address(*address);
+                }
+            }
+            else if (peer->strikes >= MaxBadPiecesPerPeer)
+            {
+                tr_logAddTraceSwarm(this, fmt::format("banning peer {}", peer->display_name()));
+                peer->ban();
+            }
+
+            peer->blame.unset(piece);
         };
 
         auto const byte_count = tor->piece_size(piece);
 
         for (auto const& peer : peers)
         {
-            maybe_add_strike(peer.get());
+            record_bad_piece(peer.get());
         }
 
         for (auto& webseed : webseeds)
         {
             auto const strikes_before = webseed->strikes;
-            maybe_add_strike(webseed.get());
+            record_bad_piece(webseed.get());
 
             if (wishlist_controller != nullptr && strikes_before < MaxBadPiecesPerPeer &&
                 webseed->strikes >= MaxBadPiecesPerPeer)
@@ -1076,7 +1132,7 @@ EXIT:
 
     // ---
 
-    // number of bad pieces a peer is allowed to send before we ban them
+    // number of distinct bad pieces a peer is allowed to send before we ban them
     static auto constexpr MaxBadPiecesPerPeer = 5U;
 
     std::array<sigslot::scoped_connection, 8> const tags_;
@@ -1221,6 +1277,7 @@ tr_peer::tr_peer(tr_torrent const& tor)
     , swarm{ tor.swarm }
     , active_requests{ tor.block_count() }
     , blame{ tor.piece_count() }
+    , bad_pieces{ tor.piece_count() }
 {
 }
 
@@ -1259,7 +1316,23 @@ std::vector<tr_block_span_t> tr_peerMgrGetNextRequests(tr_torrent* torrent, tr_p
 
     if (auto& controller = torrent->swarm->wishlist_controller)
     {
-        return controller->next(numwant, [peer](tr_piece_index_t p) { return peer->has_piece(p); });
+        auto* const swarm = torrent->swarm;
+        return controller->next(
+            numwant,
+            [peer, swarm](tr_piece_index_t p)
+            {
+                if (peer->bad_pieces.test(p))
+                {
+                    return false;
+                }
+
+                if (auto const address = peer->address(); address && swarm->is_bad_piece(*address, p))
+                {
+                    return false;
+                }
+
+                return peer->has_piece(p);
+            });
     }
 
     return {};
@@ -1643,7 +1716,7 @@ void create_bit_torrent_peer(
         info->set_utp_supported();
     }
 
-    if (info->is_banned())
+    if (info->is_banned() || swarm->banned_peer_addresses.contains(info->listen_address()))
     {
         tr_logAddTraceSwarm(swarm, fmt::format("banned peer {} tried to reconnect", info->display_name()));
         return false;
@@ -1784,7 +1857,7 @@ namespace get_peers_helpers
         return false;
     }
 
-    if (info.is_banned())
+    if (info.is_banned() || tor->swarm->banned_peer_addresses.contains(info.listen_address()))
     {
         return false;
     }
@@ -2763,7 +2836,7 @@ namespace connect_helpers
     }
 
     // not if they're banned...
-    if (peer_info.is_banned())
+    if (peer_info.is_banned() || tor->swarm->banned_peer_addresses.contains(peer_info.listen_address()))
     {
         return false;
     }
