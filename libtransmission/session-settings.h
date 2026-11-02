@@ -92,6 +92,7 @@ public:
     bool peer_port_random_on_start = false;
     bool pex_enabled = true;
     bool port_forwarding_enabled = true;
+    bool queue_move_to_end_enabled = false;
     bool queue_stalled_enabled = true;
     bool ratio_limit_enabled = false;
     bool script_torrent_added_enabled = false;
@@ -113,6 +114,7 @@ public:
     size_t download_queue_size = 5U;
     size_t peer_limit_global = TrDefaultPeerLimitGlobal;
     size_t peer_limit_per_torrent = TrDefaultPeerLimitTorrent;
+    size_t queue_move_to_end_minutes = 30U;
     size_t queue_stalled_minutes = 30U;
     size_t reqq = 2000U;
     size_t seed_queue_size = 10U;
@@ -214,6 +216,8 @@ public:
         Field<&SessionSettings::preallocation_mode>{ TR_KEY_preallocation },
         Field<&SessionSettings::preferred_transports>{ TR_KEY_preferred_transports },
         Field<&SessionSettings::proxy_url>{ TR_KEY_proxy_url },
+        Field<&SessionSettings::queue_move_to_end_enabled>{ TR_KEY_queue_move_to_end_enabled },
+        Field<&SessionSettings::queue_move_to_end_minutes>{ TR_KEY_queue_move_to_end_minutes },
         Field<&SessionSettings::queue_stalled_enabled>{ TR_KEY_queue_stalled_enabled },
         Field<&SessionSettings::queue_stalled_minutes>{ TR_KEY_queue_stalled_minutes },
         Field<&SessionSettings::ratio_limit>{ TR_KEY_seed_ratio_limit },

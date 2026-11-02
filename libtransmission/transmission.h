@@ -470,6 +470,18 @@ bool tr_sessionGetQueueStalledEnabled(tr_session const* session);
 /** @brief Set whether or not to count torrents idle for over N minutes as 'stalled' */
 void tr_sessionSetQueueStalledEnabled(tr_session* session, bool enabled);
 
+/** @return true if inactive, data-less downloads are moved to the end of the queue */
+bool tr_sessionGetQueueMoveToEndEnabled(tr_session const* session);
+
+/** @brief Set whether inactive, data-less downloads are moved to the end of the queue */
+void tr_sessionSetQueueMoveToEndEnabled(tr_session* session, bool enabled);
+
+/** @return the number of idle minutes before a data-less download is moved to the end of the queue */
+size_t tr_sessionGetQueueMoveToEndMinutes(tr_session const* session);
+
+/** @brief Set the number of idle minutes before a data-less download is moved to the end of the queue */
+void tr_sessionSetQueueMoveToEndMinutes(tr_session* session, size_t minutes);
+
 /** @brief Set a callback that is invoked when the queue starts a torrent */
 void tr_sessionSetQueueStartCallback(tr_session* session, tr_session_queue_start_func callback);
 

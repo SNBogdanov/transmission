@@ -11,6 +11,9 @@
 - `torrent_archive.delete` to remove one archived entry.
 - `torrent_archive.view` to return a ZIP bundle with an entry's `.torrent` and
   `.resume` files; `download` is accepted as an alias.
+- `queue_move_to_end_enabled` and `queue_move_to_end_minutes`: inactive
+  downloads with no valid data are moved to the end of the download queue and
+  reported as waiting.
 - Per-torrent `incomplete_dir` and the `torrent_set_incomplete_dir` RPC method.
 - `min_free_space` and `min_free_space_resume_margin` session settings.
 - Move-completed/partial-file, script-torrent-done-remove, and

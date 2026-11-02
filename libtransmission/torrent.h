@@ -323,6 +323,11 @@ struct tr_torrent
         return completion_.size_when_done();
     }
 
+    [[nodiscard]] auto percent_done() const
+    {
+        return completion_.percent_done();
+    }
+
     [[nodiscard]] constexpr auto has_metainfo() const noexcept
     {
         return completion_.has_metainfo();

@@ -844,6 +844,8 @@ also return `size` (number) and `sha256` (string) for the uploaded bundle.
 | `pex_enabled` | boolean | true means allow PEX in public torrents
 | `port_forwarding_enabled` | boolean | true means ask upstream router to forward the configured peer port to transmission using UPnP or NAT-PMP
 | `preferred_transports` | string[] | preference of transport protocols, see [Editing Configuration Files](Editing-Configuration-Files.md#misc) for details
+| `queue_move_to_end_enabled` | boolean | whether inactive downloads with no valid data are moved to the end of the download queue
+| `queue_move_to_end_minutes` | number | idle minutes before a data-less download is moved to the end of the download queue
 | `queue_stalled_enabled` | boolean | whether or not to consider idle torrents as stalled
 | `queue_stalled_minutes` | number | torrents that are idle for N minuets aren't counted toward `seed_queue_size` or `download_queue_size`
 | `rename_partial_files` | boolean | true means append `.part` to incomplete files

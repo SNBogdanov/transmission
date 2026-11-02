@@ -456,6 +456,8 @@ auto constexpr MyStatic = std::array<std::string_view, TR_N_KEYS>{
     "queuePosition"sv, // rpc
     "queue_move_bottom"sv, // rpc
     "queue_move_down"sv, // rpc
+    "queue_move_to_end_enabled"sv, // rpc, tr_session::Settings
+    "queue_move_to_end_minutes"sv, // rpc, tr_session::Settings
     "queue_move_top"sv, // rpc
     "queue_move_up"sv, // rpc
     "queue_position"sv, // rpc

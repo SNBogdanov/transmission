@@ -1324,6 +1324,41 @@ void tr_session::on_queue_timer()
 {
     using namespace queue_helpers;
 
+    // Give queued downloads a chance: stop active downloads that have not
+    // received any valid data and have been idle past the configured limit,
+    // then move them to the end of the queue.
+    if (queueEnabled(tr_direction::Down) && queueMoveToEndEnabled() && queueMoveToEndMinutes() > 0U)
+    {
+        auto const waiting = torrents().get_matching([](tr_torrent const* const tor)
+                                                     { return tor->is_queued(tr_direction::Down); });
+
+        if (!std::empty(waiting))
+        {
+            auto const now = tr_time();
+            auto const idle_limit_secs = static_cast<time_t>(queueMoveToEndMinutes() * 60U);
+
+            for (auto* const tor : torrents())
+            {
+                if (tor->activity() != TR_STATUS_DOWNLOAD || tor->is_done() || !tor->has_metainfo() ||
+                    tor->size_when_done() == 0U || tor->percent_done() > 0.0)
+                {
+                    continue;
+                }
+
+                auto const idle_secs = tor->idle_seconds(now);
+                if (!idle_secs || *idle_secs < idle_limit_secs)
+                {
+                    continue;
+                }
+
+                tr_logAddDebugTor(tor, "Moving idle data-less download to the end of the queue");
+                tor->set_queue_position(std::numeric_limits<size_t>::max());
+                tor->stop_now();
+                tor->set_is_queued();
+            }
+        }
+    }
+
     for (auto const dir : { tr_direction::Up, tr_direction::Down })
     {
         if (!queueEnabled(dir))
@@ -2658,6 +2693,35 @@ void tr_sessionSetQueueStalledMinutes(tr_session* session, size_t minutes)
     TR_ASSERT(minutes > 0);
 
     session->settings_.queue_stalled_minutes = minutes;
+}
+
+void tr_sessionSetQueueMoveToEndMinutes(tr_session* session, size_t minutes)
+{
+    TR_ASSERT(session != nullptr);
+    TR_ASSERT(minutes > 0);
+
+    session->settings_.queue_move_to_end_minutes = minutes;
+}
+
+void tr_sessionSetQueueMoveToEndEnabled(tr_session* session, bool is_enabled)
+{
+    TR_ASSERT(session != nullptr);
+
+    session->settings_.queue_move_to_end_enabled = is_enabled;
+}
+
+bool tr_sessionGetQueueMoveToEndEnabled(tr_session const* session)
+{
+    TR_ASSERT(session != nullptr);
+
+    return session->queueMoveToEndEnabled();
+}
+
+size_t tr_sessionGetQueueMoveToEndMinutes(tr_session const* session)
+{
+    TR_ASSERT(session != nullptr);
+
+    return session->queueMoveToEndMinutes();
 }
 
 void tr_sessionSetQueueStalledEnabled(tr_session* session, bool is_enabled)

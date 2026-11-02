@@ -976,6 +976,16 @@ public:
         return dir == tr_direction::Down ? settings_.download_queue_size : settings_.seed_queue_size;
     }
 
+    [[nodiscard]] constexpr auto queueMoveToEndEnabled() const noexcept
+    {
+        return settings().queue_move_to_end_enabled;
+    }
+
+    [[nodiscard]] constexpr auto queueMoveToEndMinutes() const noexcept
+    {
+        return settings().queue_move_to_end_minutes;
+    }
+
     [[nodiscard]] constexpr auto queueStalledEnabled() const noexcept
     {
         return settings().queue_stalled_enabled;
@@ -1343,6 +1353,8 @@ private:
     friend void tr_sessionSetPexEnabled(tr_session* session, bool enabled);
     friend void tr_sessionSetPortForwardingEnabled(tr_session* session, bool enabled);
     friend void tr_sessionSetQueueEnabled(tr_session* session, tr_direction dir, bool do_limit_simultaneous_torrents);
+    friend void tr_sessionSetQueueMoveToEndEnabled(tr_session* session, bool is_enabled);
+    friend void tr_sessionSetQueueMoveToEndMinutes(tr_session* session, size_t minutes);
     friend void tr_sessionSetQueueSize(tr_session* session, tr_direction dir, size_t max_simultaneous_torrents);
     friend void tr_sessionSetQueueStalledEnabled(tr_session* session, bool is_enabled);
     friend void tr_sessionSetQueueStalledMinutes(tr_session* session, size_t minutes);

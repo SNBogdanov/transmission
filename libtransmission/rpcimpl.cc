@@ -2599,6 +2599,28 @@ using SessionAccessors = std::pair<SessionGetter, SessionSetter>;
         });
 
     map.try_emplace(
+        TR_KEY_queue_move_to_end_enabled,
+        [](tr_session const& src) -> tr_variant { return src.queueMoveToEndEnabled(); },
+        [](tr_session& tgt, tr_variant const& src, ErrorInfo& /*err*/)
+        {
+            if (auto const val = src.value_if<bool>())
+            {
+                tr_sessionSetQueueMoveToEndEnabled(&tgt, *val);
+            }
+        });
+
+    map.try_emplace(
+        TR_KEY_queue_move_to_end_minutes,
+        [](tr_session const& src) -> tr_variant { return src.queueMoveToEndMinutes(); },
+        [](tr_session& tgt, tr_variant const& src, ErrorInfo& /*err*/)
+        {
+            if (auto const val = src.value_if<size_t>())
+            {
+                tr_sessionSetQueueMoveToEndMinutes(&tgt, *val);
+            }
+        });
+
+    map.try_emplace(
         TR_KEY_queue_stalled_enabled,
         [](tr_session const& src) -> tr_variant { return src.queueStalledEnabled(); },
         [](tr_session& tgt, tr_variant const& src, ErrorInfo& /*err*/)
