@@ -93,6 +93,43 @@ void depth_first_walk(std::string_view const path, file_func_t const& func, std:
     func(path);
 }
 
+void remove_temp_dir(std::string_view const path)
+{
+    // Remove the whole temp tree bottom-up, including files that a custom
+    // remove callback may have refused to delete. This is only used for the
+    // internal <torrent>__XXXXXX staging directory.
+    depth_first_walk(path, [](std::string_view const filename) { tr_sys_path_remove(filename); });
+}
+
+void remove_stale_temp_dirs(std::string_view const parent, std::string_view const prefix)
+{
+    auto const odir = tr_sys_dir_open(parent);
+    if (odir == TR_BAD_SYS_DIR)
+    {
+        return;
+    }
+
+    auto const prefix_with_sep = fmt::format("{}__", prefix);
+    auto stale = std::vector<tr_pathbuf>{};
+
+    char const* name_cstr = nullptr;
+    while ((name_cstr = tr_sys_dir_read_name(odir)) != nullptr)
+    {
+        auto const name = std::string_view{ name_cstr };
+        if (name.size() == prefix_with_sep.size() + 6 && name.starts_with(prefix_with_sep))
+        {
+            stale.emplace_back(parent, '/', name);
+        }
+    }
+
+    tr_sys_dir_close(odir);
+
+    for (auto const& path : stale)
+    {
+        remove_temp_dir(path.sv());
+    }
+}
+
 bool is_junk_file(std::string_view filename)
 {
     auto const base = tr_sys_path_basename(filename);
@@ -321,6 +358,10 @@ void tr_torrent_files::remove(
         return;
     }
 
+    // Remove staging directories left behind by an interrupted removal
+    // before creating a new one for this attempt.
+    remove_stale_temp_dirs(parent.sv(), tmpdir_prefix);
+
     // try to make a tmpdir
     auto tmpdir = tr_pathbuf{ parent, '/', tmpdir_prefix, "__XXXXXX"sv };
     if (!tr_sys_dir_create_temp(std::data(tmpdir), error))
@@ -337,6 +378,7 @@ void tr_torrent_files::remove(
             // if moving a file fails, give up and let the error propagate
             if (!tr_file_move(found->filename(), tr_pathbuf{ tmpdir, '/', found->subpath() }, false, error))
             {
+                remove_temp_dir(tmpdir.sv());
                 return;
             }
         }
@@ -372,7 +414,7 @@ void tr_torrent_files::remove(
     // directories -- so plan B is to remove everything bottom-up.
     depth_first_walk(tmpdir, func_wrapper, 1);
     depth_first_walk(tmpdir, func_wrapper);
-    tr_sys_path_remove(tmpdir);
+    remove_temp_dir(tmpdir.sv());
 
     // OK we've removed the local data.
     // What's left are empty folders, junk, and user-generated files.

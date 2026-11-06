@@ -41,6 +41,9 @@
 - Completed-torrent moves no longer move `.part` files of unwanted files into
   the download directory; they stay in the incomplete directory to be cleaned
   there.
+- Interrupted removals of torrent data no longer leave `<name>__XXXXXX`
+  staging directories behind; stale staging directories are cleaned up before
+  the next removal.
 - Corrupt pieces are no longer re-requested from the peers that contributed to
   them. The exclusion is remembered per peer address and survives reconnects
   from another port. Only a peer that contributes to five distinct bad pieces
