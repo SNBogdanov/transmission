@@ -38,6 +38,9 @@
   so download clients do not import files too early. Seeding is paused during
   the move and resumed afterwards.
 - Reduced memory pressure by capping pending writes and applying backpressure.
+- Completed-torrent moves no longer move `.part` files of unwanted files into
+  the download directory; they stay in the incomplete directory to be cleaned
+  there.
 - Corrupt pieces are no longer re-requested from the peers that contributed to
   them. The exclusion is remembered per peer address and survives reconnects
   from another port. Only a peer that contributes to five distinct bad pieces

@@ -115,7 +115,8 @@ public:
         tr_error* error = nullptr,
         bool move_partial_files = true,
         bool torrent_is_done = false,
-        bool rename_partial_files = true) const;
+        bool rename_partial_files = true,
+        std::function<bool(tr_file_index_t)> const& is_file_wanted = {}) const;
 
     void remove(
         std::string_view parent_in,

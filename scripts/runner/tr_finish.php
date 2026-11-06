@@ -211,6 +211,55 @@ function scriptFirstTorrent($res): ?object
     return is_object($torrents[0]) ? $torrents[0] : null;
 }
 
+function scriptCandidatePaths(string $dir, string $name, string $sub): array
+{
+    $base = rtrim($dir, '/\\') . DIRECTORY_SEPARATOR;
+    $sub = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $sub);
+
+    // Transmission file names are usually relative to downloadDir and already
+    // include the torrent root for multi-file torrents. Keep the legacy
+    // downloadDir/<torrent>/<file> form too.
+    return array_values(array_unique([
+        $base . $sub,
+        $base . $name . DIRECTORY_SEPARATOR . $sub,
+    ]));
+}
+
+function scriptHasPartFiles(string $dir, string $name): bool
+{
+    $root = rtrim($dir, '/\\') . DIRECTORY_SEPARATOR . $name;
+    if (!is_dir($root))
+        return false;
+
+    $it = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST
+    );
+    foreach ($it as $item)
+    {
+        if ($item->isFile() && str_ends_with($item->getFilename(), '.part'))
+            return true;
+    }
+    return false;
+}
+
+function scriptRemovePartFiles(string $dir, string $name): void
+{
+    $root = rtrim($dir, '/\\') . DIRECTORY_SEPARATOR . $name;
+    if (!is_dir($root))
+        return;
+
+    $it = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST
+    );
+    foreach ($it as $item)
+    {
+        if ($item->isFile() && str_ends_with($item->getFilename(), '.part'))
+            @unlink($item->getPathname());
+    }
+}
+
 function scriptRemoveTempFiles($rpc, $id): void
 {
     $res = $rpc->get($id, ['name', 'downloadDir', 'incomplete_dir', 'files', 'fileStats']);
@@ -225,21 +274,23 @@ function scriptRemoveTempFiles($rpc, $id): void
     $stats = scriptList($torrent->fileStats ?? []);
     $dirs = array_filter([$torrent->downloadDir ?? null, $torrent->incomplete_dir ?? null]);
     $name = $torrent->name;
-    $isSingleFile = count($files) === 1 && ($files[0]->name ?? null) === $name;
 
     foreach ($dirs as $dir)
     {
-        $base = rtrim($dir, '/\\') . DIRECTORY_SEPARATOR;
         foreach ($files as $i => $file)
         {
-            $sub = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $file->name);
-            $path = $isSingleFile ? $base . $name : $base . $name . DIRECTORY_SEPARATOR . $sub;
             $wanted = $stats[$i]->wanted ?? false;
-            if (!$wanted && is_file($path))
-                @unlink($path);
-            if (is_file($path . '.part'))
-                @unlink($path . '.part');
+            foreach (scriptCandidatePaths($dir, $name, $file->name) as $path)
+            {
+                if (!$wanted && is_file($path))
+                    @unlink($path);
+                if (is_file($path . '.part'))
+                    @unlink($path . '.part');
+            }
         }
+
+        // Thumbnails and other generated files are not part of torrent.files.
+        scriptRemovePartFiles($dir, $name);
     }
 }
 
@@ -257,21 +308,22 @@ function scriptStagingHasData($rpc, $id, bool $includeParts = true): bool
     $stats = scriptList($torrent->fileStats ?? []);
     $dirs = array_filter([$torrent->incomplete_dir ?? null]);
     $name = $torrent->name;
-    $isSingleFile = count($files) === 1 && ($files[0]->name ?? null) === $name;
 
     foreach ($dirs as $dir)
     {
-        $base = rtrim($dir, '/\\') . DIRECTORY_SEPARATOR;
         foreach ($files as $i => $file)
         {
-            $sub = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $file->name);
-            $path = $isSingleFile ? $base . $name : $base . $name . DIRECTORY_SEPARATOR . $sub;
             $wanted = $stats[$i]->wanted ?? false;
-            if ($wanted && is_file($path))
-                return true;
-            if ($includeParts && is_file($path . '.part'))
-                return true;
+            foreach (scriptCandidatePaths($dir, $name, $file->name) as $path)
+            {
+                if ($wanted && is_file($path))
+                    return true;
+                if ($includeParts && is_file($path . '.part'))
+                    return true;
+            }
         }
+        if ($includeParts && scriptHasPartFiles($dir, $name))
+            return true;
     }
     return false;
 }

@@ -201,7 +201,8 @@ public:
                 &error,
                 tor->session->movePartialFilesEnabled(),
                 tor->is_done(),
-                tor->session->isIncompleteFileNamingEnabled()))
+                tor->session->isIncompleteFileNamingEnabled(),
+                [tor](tr_file_index_t file) { return tor->file_is_wanted(file); }))
         {
             return error ? error.code() : EIO;
         }

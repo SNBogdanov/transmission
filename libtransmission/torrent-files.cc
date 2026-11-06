@@ -193,7 +193,8 @@ bool tr_torrent_files::move(
     tr_error* error,
     bool move_partial_files,
     bool torrent_is_done,
-    bool rename_partial_files) const
+    bool rename_partial_files,
+    std::function<bool(tr_file_index_t)> const& is_file_wanted) const
 {
     auto const old_parent = tr_pathbuf{ old_parent_in };
     auto const parent = tr_pathbuf{ parent_in };
@@ -227,8 +228,11 @@ bool tr_torrent_files::move(
          * are disabled: they are still needed for seeding and copying them
          * to a different filesystem allocates the full file size there.
          * A completed torrent is the exception: rename the finished .part
-         * in place first, then move the completed file to its destination. */
-        if (!move_partial_files && is_partial && !(torrent_is_done && rename_partial_files))
+         * in place first, then move the completed file to its destination.
+         * Unwanted files are never that exception: their .part files can be
+         * preallocated full-size but still contain almost no data. */
+        auto const is_wanted = !is_file_wanted || is_file_wanted(i);
+        if (!move_partial_files && is_partial && (!torrent_is_done || !rename_partial_files || !is_wanted))
         {
             continue;
         }
