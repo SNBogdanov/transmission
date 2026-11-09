@@ -982,11 +982,11 @@ namespace make_torrent_field_helpers
                 {
                     status = TR_STATUS_STOPPED;
                 }
-                else if (status == TR_STATUS_PENDING_MOVE || status == TR_STATUS_SCRIPT_RUNNING)
+                else if (status == TR_STATUS_PENDING_MOVE || status == TR_STATUS_MOVING || status == TR_STATUS_SCRIPT_RUNNING)
                 {
-                    // Report a move or a running done script as downloading
-                    // rather than seeding so that clients do not start
-                    // post-processing (importing files) before it is safe.
+                    // Report a pending/running move or a running done script
+                    // as downloading rather than seeding so that clients do
+                    // not start post-processing before it is safe.
                     status = TR_STATUS_DOWNLOAD;
                 }
             }

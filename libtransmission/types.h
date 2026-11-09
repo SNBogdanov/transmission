@@ -353,7 +353,8 @@ enum tr_torrent_activity : uint8_t
     TR_STATUS_SEED = 6, /* Seeding */
     TR_STATUS_SPACE_PAUSED = 7, /* Paused: not enough free space */
     TR_STATUS_PENDING_MOVE = 8, /* Waiting for space to move to the download directory */
-    TR_STATUS_SCRIPT_RUNNING = 9 /* Running the torrent-done script */
+    TR_STATUS_SCRIPT_RUNNING = 9, /* Running the torrent-done script */
+    TR_STATUS_MOVING = 10 /* Moving data to the download directory */
 };
 
 enum tr_tracker_state : uint8_t

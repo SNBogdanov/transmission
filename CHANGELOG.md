@@ -17,7 +17,8 @@
 - Per-torrent `incomplete_dir` and the `torrent_set_incomplete_dir` RPC method.
 - `min_free_space` and `min_free_space_resume_margin` session settings.
 - `TR_STATUS_SCRIPT_RUNNING` (`status = 9`) while a torrent-done script is
-  running. Clients that do not negotiate `status/v2` receive the previous
+  running and `TR_STATUS_MOVING` (`status = 10`) while completed data is being
+  moved. Clients that do not negotiate `status/v2` receive the previous
   `TR_STATUS_DOWNLOAD` value instead.
 - Move-completed/partial-file, script-torrent-done-remove, and
   force-finish-partial-files settings.

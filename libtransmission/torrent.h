@@ -797,7 +797,12 @@ struct tr_torrent
             return TR_STATUS_SCRIPT_RUNNING;
         }
 
-        if (pending_move_ || move_in_progress_)
+        if (move_in_progress_)
+        {
+            return TR_STATUS_MOVING;
+        }
+
+        if (pending_move_)
         {
             return TR_STATUS_PENDING_MOVE;
         }
