@@ -850,6 +850,9 @@ void tr_torrent::start(bool bypass_queue, std::optional<bool> has_any_local_data
          * we'll know what completeness to use/announce */
         return;
 
+    case TR_STATUS_SCRIPT_RUNNING:
+        return; /* the torrent-done script owns the torrent */
+
     case TR_STATUS_PENDING_MOVE:
         if (is_move_in_progress())
         {

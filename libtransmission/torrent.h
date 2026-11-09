@@ -792,6 +792,11 @@ struct tr_torrent
             return TR_STATUS_CHECK_WAIT;
         }
 
+        if (script_running_)
+        {
+            return TR_STATUS_SCRIPT_RUNNING;
+        }
+
         if (pending_move_ || move_in_progress_)
         {
             return TR_STATUS_PENDING_MOVE;
@@ -876,6 +881,16 @@ struct tr_torrent
     [[nodiscard]] constexpr bool is_pending_move() const noexcept
     {
         return pending_move_;
+    }
+
+    [[nodiscard]] constexpr bool is_script_running() const noexcept
+    {
+        return script_running_;
+    }
+
+    constexpr void set_script_running(bool const is_running) noexcept
+    {
+        script_running_ = is_running;
     }
 
     /** True while the torrent's data is being relocated. Completed torrents
@@ -1566,6 +1581,7 @@ private:
     uint64_t pending_move_bytes_ = 0;
 
     bool script_on_done_pending_ = false;
+    bool script_running_ = false;
 
     bool finished_seeding_by_idle_ = false;
 

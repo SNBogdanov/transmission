@@ -406,7 +406,7 @@ Files are returned in the order they are laid out in the torrent. References to 
 
 `priorities`: An array of `tr_torrentFileCount()` numbers. Each is the `tr_priority_t` mode for the corresponding file.
 
-`status`: A number between 0 and 8, where:
+`status`: A number between 0 and 9, where:
 
 | Value | Meaning
 | :-- | :--
@@ -419,8 +419,9 @@ Files are returned in the order they are laid out in the torrent. References to 
 | 6 | Torrent is seeding
 | 7 | Torrent is paused because of insufficient free space
 | 8 | Torrent is waiting for free space or moving data to the download directory
+| 9 | Torrent is running its torrent-done script
 
-Clients that do not support the extended statuses receive legacy values: `7` is reported as `0` (stopped) and `8` as `4` (downloading). Status `8` is reported while a completed torrent is still being moved, so legacy clients do not treat it as finished and do not start importing its files before the move completes; `isFinished` is false during this period. To receive `7` and `8`, send `X-Transmission-Client-Features: status/v2` in the request headers. The server advertises this capability as `status/v2` in `fork_features`.
+Clients that do not support the extended statuses receive legacy values: `7` is reported as `0` (stopped), and `8` and `9` are reported as `4` (downloading). Status `8` is reported while a completed torrent is still being moved and status `9` while its done script is running, so legacy clients do not treat it as finished and do not start importing its files before post-processing completes; `isFinished` is false during this period. To receive `7`, `8`, and `9`, send `X-Transmission-Client-Features: status/v2` in the request headers. The server advertises this capability as `status/v2` in `fork_features`.
 
 `trackers`: array of objects, each containing:
 
@@ -829,7 +830,7 @@ also return `size` (number) and `sha256` (string) for the uploaded bundle.
 | `download_queue_enabled` | boolean | if true, limit how many torrents can be downloaded at once
 | `download_queue_size` | number | max number of torrents to download at once (see `download_queue_enabled`)
 | `encryption` | string | `required`, `preferred`, `allowed`
-| `fork_features` | string[] | fork-specific capability identifiers. `auto_priority/v1` means the auto-priority settings and per-torrent `auto_priority` field are available. `min_free_space/v1` and `min_free_space_resume_margin/v1` mean this fork's minimum-free-space settings are available. `per_torrent_incomplete_dir/v1` means `incomplete_dir` can be set per torrent via `torrent_add`/`torrent_set` and is returned by `torrent_get`. `torrent_set_incomplete_dir/v1` means the `torrent_set_incomplete_dir` method is available to change the staging directory and optionally move existing data. `torrent_archive/v1` means the `torrent_archive` method is available. `torrent_archive_upload/v1` means `torrent_archive.import` accepts `data_base64`. `status/v2` means statuses `7` and `8` are available when the client opts in via the `X-Transmission-Client-Features` header.
+| `fork_features` | string[] | fork-specific capability identifiers. `auto_priority/v1` means the auto-priority settings and per-torrent `auto_priority` field are available. `min_free_space/v1` and `min_free_space_resume_margin/v1` mean this fork's minimum-free-space settings are available. `per_torrent_incomplete_dir/v1` means `incomplete_dir` can be set per torrent via `torrent_add`/`torrent_set` and is returned by `torrent_get`. `torrent_set_incomplete_dir/v1` means the `torrent_set_incomplete_dir` method is available to change the staging directory and optionally move existing data. `torrent_archive/v1` means the `torrent_archive` method is available. `torrent_archive_upload/v1` means `torrent_archive.import` accepts `data_base64`. `status/v2` means statuses `7`, `8`, and `9` are available when the client opts in via the `X-Transmission-Client-Features` header.
 | `idle_seeding_limit` | number | torrents we're seeding will be stopped if they're idle for this long
 | `idle_seeding_limit_enabled` | boolean | true if the seeding inactivity limit is honored by default
 | `incomplete_dir` | string | path for incomplete torrents, when enabled

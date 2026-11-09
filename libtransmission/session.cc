@@ -1142,12 +1142,17 @@ void tr_session::processDoneActionQueue()
             tor->script_on_done_pending_ = true;
             done_action_active_ = true;
 
+            tor->set_script_running(false);
             if (!tor->call_script_if_enabled(
                     TR_SCRIPT_ON_TORRENT_DONE,
                     [this, tor_id](int exit_status)
                     { run_in_session_thread([this, tor_id, exit_status]() { onDoneScriptFinished(tor_id, exit_status); }); }))
             {
                 done_action_active_ = false;
+            }
+            else
+            {
+                tor->set_script_running(true);
             }
 
             return;
@@ -1185,12 +1190,17 @@ void tr_session::processDoneActionQueue()
             tor->script_on_done_pending_ = false;
             done_action_active_ = true;
 
+            tor->set_script_running(false);
             if (!tor->call_script_if_enabled(
                     TR_SCRIPT_ON_TORRENT_DONE,
                     [this, tor_id](int exit_status)
                     { run_in_session_thread([this, tor_id, exit_status]() { onDoneScriptFinished(tor_id, exit_status); }); }))
             {
                 done_action_active_ = false;
+            }
+            else
+            {
+                tor->set_script_running(true);
             }
 
             return;
@@ -1209,11 +1219,13 @@ void tr_session::onDoneMoveFinished(tr_torrent_id_t const tor_id, bool const mov
     {
         tor->script_on_done_pending_ = false;
 
+        tor->set_script_running(false);
         if (tor->call_script_if_enabled(
                 TR_SCRIPT_ON_TORRENT_DONE,
                 [this, tor_id](int exit_status)
                 { run_in_session_thread([this, tor_id, exit_status]() { onDoneScriptFinished(tor_id, exit_status); }); }))
         {
+            tor->set_script_running(true);
             return; // wait for the script exit before starting the next torrent
         }
     }
@@ -1243,6 +1255,7 @@ void tr_session::onDoneScriptFinished(tr_torrent_id_t const tor_id, int const /*
     if (auto* const tor = torrents().get(tor_id); tor != nullptr)
     {
         tor->script_on_done_pending_ = false;
+        tor->set_script_running(false);
     }
 
     // The external done script owns moving, temp-file cleanup and torrent
