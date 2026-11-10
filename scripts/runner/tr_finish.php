@@ -528,8 +528,78 @@ if ($rpc->connected)
     {
         $torrents = scriptList($res->arguments->torrents ?? []);
         $torrents_found = count($torrents);
+        $downloadTopics = getDownloadTopics();
+        $namesReady = false;
         foreach ($torrents as $torrent)
         {
+            $hashKey = strtolower((string) ($torrent->hashString ?? ''));
+            $torrentComment = (string) ($torrent->comment ?? '');
+            $commentName = torrentCommentName($torrentComment);
+            $commentUrl = torrentCommentUrl($torrentComment);
+            $downloadTopic = $hashKey !== '' ? ($downloadTopics[$hashKey] ?? null) : null;
+            if ($downloadTopic === null && $commentName !== null)
+            {
+                $downloadTopic = ['name' => $commentName, 'url' => $commentUrl];
+                if ($hashKey !== '')
+                    $downloadTopics[$hashKey] = $downloadTopic;
+            }
+            if ($downloadTopic === null && $commentUrl !== '' && str_contains($commentUrl, 'http'))
+            {
+                if (!$namesReady)
+                {
+                    $Names->setDirectory($sript_dir);
+                    $namesReady = true;
+                }
+                $downloadTopic = getNameUrl($commentUrl);
+                if (is_array($downloadTopic))
+                {
+                    if ($hashKey !== '')
+                        $downloadTopics[$hashKey] = $downloadTopic;
+                    if (!empty($downloadTopic['name']))
+                        saveDownloadTopic($hashKey, (string) $downloadTopic['name'], (string) ($downloadTopic['url'] ?? ''));
+                }
+            }
+            if (is_array($downloadTopic))
+            {
+                $recognized = (string) ($downloadTopic['Whisparr'] ?? '');
+                if ($recognized === '' && !empty($downloadTopic['name']) && $client !== null)
+                {
+                    try
+                    {
+                        $parsedTopic = parseEpisode($client, (string) $downloadTopic['name']);
+                        if ($parsedTopic !== false && isset($parsedTopic->series))
+                            $recognized = printEpisode($parsedTopic, true);
+                    }
+                    catch (Throwable $e)
+                    {
+                        Logger::warning("Cannot parse saved topic via Whisparr", ['torrent' => $torrent->name, 'error' => $e->getMessage()]);
+                    }
+                }
+                if ($recognized !== '' && $recognized !== 'Skip' && strcasecmp($recognized, (string) $torrent->name) !== 0)
+                {
+                    $filesRes = $rpc->get($torrent->id, ['files']);
+                    if (TransmissionRPC::check_result($filesRes, 'torrents'))
+                    {
+                        $topicFiles = $filesRes->arguments->torrents[0]->files ?? [];
+                        if (count($topicFiles) == 1)
+                        {
+                            $topicExt = pathinfo((string) ($topicFiles[0]->name ?? ''), PATHINFO_EXTENSION);
+                            if ($topicExt !== '' && !str_ends_with(strtolower($recognized), '.' . strtolower($topicExt)))
+                                $recognized .= '.' . $topicExt;
+                        }
+                    }
+                    $renamed = $rpc->rename($torrent->id, (string) $torrent->name, $recognized);
+                    if (TransmissionRPC::check_result($renamed))
+                    {
+                        cprintf("light_green", "Renamed torrent [ %4d ] %s -> %s" . PHP_EOL, $torrent->id, $torrent->name, $recognized);
+                        $torrent->name = $recognized;
+                    }
+                    else
+                    {
+                        Logger::warning("Cannot rename torrent after Whisparr recognition", ['torrent' => $torrent->name, 'recognized' => $recognized]);
+                    }
+                }
+            }
             $res1 = cachedRpcGet($rpc, $torrent->id, $fields);
             if (!TransmissionRPC::check_result($res1, 'torrents'))
                 continue;
@@ -1238,6 +1308,7 @@ if ($rpc->connected)
                     {
                         if ($removeAllFilesAfterScript)
                             CleanUpDirectory($destinationDir . $TR_TORRENT_NAME);
+                        RemoveEmptyDirectories($destinationDir . $TR_TORRENT_NAME);
                     }
                     // renameEpisodes($client, $ids, pathinfo($argv[0], PATHINFO_DIRNAME));
                     // checkDownloadedEpisodes($client);
@@ -1469,6 +1540,7 @@ if ($rpc->connected)
                     {
                         if ($removeAllFilesAfterScript)
                             CleanUpDirectory($destinationDir . $TR_TORRENT_NAME);
+                        RemoveEmptyDirectories($destinationDir . $TR_TORRENT_NAME);
                     }
                 }
 
@@ -1713,12 +1785,14 @@ if ($rpc->connected)
                 {
                     if ($removeAllFilesAfterScript)
                         CleanUpDirectory($incomplete_dir . $torrent->name);
+                    RemoveEmptyDirectories($incomplete_dir . $torrent->name);
                 }
 
                 if ($downloadDir != $destinationDir && is_dir($downloadDir . $torrent->name))
                 {
                     if ($removeAllFilesAfterScript)
                         CleanUpDirectory($downloadDir . $torrent->name);
+                    RemoveEmptyDirectories($downloadDir . $torrent->name);
                 }
             }
             if ($status != TransmissionRPC::TR_STATUS_STOPPED && $par->MoveReady)

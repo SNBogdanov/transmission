@@ -54,6 +54,26 @@ else
     }
 }
 
+// When the caller explicitly selects torrents by id, do not let the
+// daemon-provided TR_TORRENT_HASH env value route the request through the
+// qBittorrent duplicate check. An explicit --hash still takes precedence.
+$explicitIdArg = false;
+$explicitHashArg = false;
+if ($payload === null && isset($argv) && is_array($argv))
+{
+    foreach (array_slice($argv, 1) as $arg)
+    {
+        if ($arg === '-t' || $arg === '--id' || str_starts_with($arg, '--id=') || preg_match('/^-t\d+$/', $arg) === 1)
+            $explicitIdArg = true;
+        if ($arg === '--hash' || str_starts_with($arg, '--hash='))
+            $explicitHashArg = true;
+    }
+}
+if ($payload === null && $explicitIdArg && !$explicitHashArg)
+{
+    $par->hash = [];
+}
+
 $par1 = clone $par;
 $finished = 0;
 
@@ -142,6 +162,7 @@ if ($rpc->connected)
         $hashes = [$hash];
     }
 
+    $transmissionHashes = [];
     foreach ($hashes as $hash)
     {
         $qbTorrents = $qb !== null ? $qb->getTorrentList(['hashes' => $hash]) : [];
@@ -150,7 +171,8 @@ if ($rpc->connected)
             cprintf("yellow", "Processing torrent in qBittorrent (hash: %s)" . PHP_EOL, $hash);
             if (!importQbittorrent($hash, $par->{'rename-temp'}, $par->{'qb-host'}, [], $qb))
             {
-                cprintf("light_red", "qBittorrent import failed, skipping torrent: %s" . PHP_EOL, $hash);
+                cprintf("light_red", "qBittorrent import failed, falling back to Transmission: %s" . PHP_EOL, $hash);
+                $transmissionHashes[] = $hash;
                 continue;
             }
             removeTorrentFromTransmission($hash, array_keys($rpcClients));
@@ -158,12 +180,13 @@ if ($rpc->connected)
         else
         {
             cprintf("yellow", "Torrent not found in qBittorrent, falling back to Transmission (hash: %s)" . PHP_EOL, $hash);
+            $transmissionHashes[] = $hash;
         }
     }
-    if (count($hashes) == 0)
+    $ids = !empty($hashes) ? $transmissionHashes : $par->ids;
+    if (count($ids) > 0)
     {
         $extPriority = ['.part', '.!qB'];
-        $ids = $par->ids;
         $torrents = [];
         $rpc->getAndProcess($ids, $fields, processor: function ($torrent) use (&$torrents): void
         {

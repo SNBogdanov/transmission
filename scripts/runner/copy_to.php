@@ -8,17 +8,16 @@ $use_lock = true;
 require_once __DIR__ . '/runner_bootstrap.php';
 require_once 'Torrent.php';
 
-global $Names;
-$Names->setDirectory(__DIR__);
-
 function copyTorrents(TransmissionRPC $localRpc, TransmissionRPC $remoteRpc, array $ids, string $path, bool $run, string $localLabel, string $remoteLabel): void
 {
-    $fields = ['id', 'name', 'torrentFile', 'labels', 'wanted', 'haveValid', 'totalSize'];
+    $fields = ['id', 'name', 'torrentFile', 'labels', 'wanted', 'haveValid', 'totalSize', 'hashString'];
     $result = $localRpc->get($ids, $fields);
+    $localTorrents = [];
     if (TransmissionRPC::check_result($result, 'torrents'))
     {
         foreach ($result->arguments->torrents as $torrent)
         {
+            $localTorrents[$torrent->hashString] = $torrent;
             if ($torrent->haveValid == $torrent->totalSize)
             {
                 printf("Skip %s because it has ben completed%s", $torrent->name, PHP_EOL);
@@ -69,20 +68,21 @@ function copyTorrents(TransmissionRPC $localRpc, TransmissionRPC $remoteRpc, arr
         }
     }
 
-    $fields = ['id', 'name', 'hashString'];
-    $local = $localRpc->get(fields: $fields);
-    $remote = $remoteRpc->get(fields: $fields);
-    $localTorrents = [];
-    foreach ($local->arguments->torrents as $torrent)
-        $localTorrents[$torrent->hashString] = $torrent;
-
-    foreach ($remote->arguments->torrents as $torrent)
+    if ($localTorrents !== [])
     {
-        if (!array_key_exists($torrent->hashString, $localTorrents))
-            continue;
+        $fields = ['id', 'name', 'hashString'];
+        $remote = $remoteRpc->get(array_keys($localTorrents), $fields);
+        if (TransmissionRPC::check_result($remote, 'torrents'))
+        {
+            foreach ($remote->arguments->torrents as $torrent)
+            {
+                if (!array_key_exists($torrent->hashString, $localTorrents))
+                    continue;
 
-        printf("Remove from %s %s%s", $localLabel, $torrent->name, PHP_EOL);
-        $localRpc->remove($localTorrents[$torrent->hashString]->id, true);
+                printf("Remove from %s %s%s", $localLabel, $torrent->name, PHP_EOL);
+                $localRpc->remove($localTorrents[$torrent->hashString]->id, true);
+            }
+        }
     }
 }
 

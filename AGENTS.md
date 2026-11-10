@@ -7,10 +7,15 @@
   The main session does not run `cmake`/`ssh`/copy commands itself: it asks for targets,
   invokes the agent, and reads the report. This preserves the agents' guardrails
   (`edit: deny`, no commit/push, VPN/local-network checks).
-- **Pass all targets of the current stage to the agent at once** (e.g. `Windows, Linux, QNAP`
-  or `transmission, qnap, sergeybo02, samsung-pc`). The agent runs them in one invocation;
+- **Pass all targets of the current stage to the agent at once** (e.g. deploy targets
+  `transmission, qnap, sergeybo02, samsung-pc`). The agent runs them in one invocation;
   the main session must not build/deploy between targets. After a test confirmation, the
   main session invokes the agent again with the remaining targets.
+- A build that includes Linux/QNAP is split by the required commit/push: build `Windows`
+  alone first, then run `/commit` (`git-commit` subagent), then build `Linux, QNAP` together.
+  Commit/push is not a build/deploy step, so it does not break the one-invocation-per-stage
+  rule. The user's request to build Linux/QNAP is the human authorization required by
+  `CLAUDE.md` for this push.
 - **Before building, ask which targets to build** (`Windows` / `Linux` / `QNAP`) **and
   whether debugging is needed** (and on which machine). Do not assume "all targets"; do not
   start the build until both answers are known. If debugging is needed, build only that
