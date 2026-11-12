@@ -117,6 +117,14 @@ public:
     {
         return comment_;
     }
+    [[nodiscard]] constexpr auto const& topic_name() const noexcept
+    {
+        return topic_name_;
+    }
+    [[nodiscard]] constexpr auto const& topic_url() const noexcept
+    {
+        return topic_url_;
+    }
     [[nodiscard]] constexpr auto const& creator() const noexcept
     {
         return creator_;
@@ -222,6 +230,8 @@ private:
     std::vector<tr_sha1_digest_t> pieces_;
 
     std::string comment_;
+    std::string topic_name_;
+    std::string topic_url_;
     std::string creator_;
     std::string source_;
 

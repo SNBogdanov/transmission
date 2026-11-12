@@ -661,6 +661,16 @@ struct tr_torrent
         return metainfo_.comment();
     }
 
+    [[nodiscard]] constexpr auto const& topic_name() const noexcept
+    {
+        return metainfo_.topic_name();
+    }
+
+    [[nodiscard]] constexpr auto const& topic_url() const noexcept
+    {
+        return metainfo_.topic_url();
+    }
+
     [[nodiscard]] constexpr auto const& creator() const noexcept
     {
         return metainfo_.creator();

@@ -804,6 +804,8 @@ namespace make_torrent_field_helpers
     case TR_KEY_source:
     case TR_KEY_start_date:
     case TR_KEY_status:
+    case TR_KEY_topic_name:
+    case TR_KEY_topic_url:
     case TR_KEY_torrent_file:
     case TR_KEY_total_size:
     case TR_KEY_tracker_list:
@@ -993,6 +995,10 @@ namespace make_torrent_field_helpers
 
             return status;
         }
+    case TR_KEY_topic_name:
+        return tor.topic_name();
+    case TR_KEY_topic_url:
+        return tor.topic_url();
     case TR_KEY_torrent_file:
         return tor.torrent_file();
     case TR_KEY_total_size:
@@ -2971,6 +2977,8 @@ using SessionAccessors = std::pair<SessionGetter, SessionSetter>;
             vec.emplace_back("torrent_archive/v1");
             vec.emplace_back("torrent_archive_upload/v1");
             vec.emplace_back("torrent_set_incomplete_dir/v1");
+            vec.emplace_back("topic_name/v1");
+            vec.emplace_back("topic_url/v1");
             vec.emplace_back("status/v2");
             if (auto* const runner = src.scriptRunner(); runner != nullptr && runner->is_enabled())
             {

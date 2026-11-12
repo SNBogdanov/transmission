@@ -326,6 +326,8 @@ The 'source' column here corresponds to the data structure there.
 | `size_when_done` | number | tr_stat
 | `start_date` | number | tr_stat
 | `status` | number (see below) | tr_stat
+| `topic_name` | string | top-level torrent metainfo `topic name` (fork extension)
+| `topic_url` | string | top-level torrent metainfo `topic url` (fork extension)
 | `torrent_file` | string | tr_info
 | `total_size` | number | tr_torrent_view
 | `trackers` | array (see below) | n/a
@@ -831,7 +833,7 @@ also return `size` (number) and `sha256` (string) for the uploaded bundle.
 | `download_queue_enabled` | boolean | if true, limit how many torrents can be downloaded at once
 | `download_queue_size` | number | max number of torrents to download at once (see `download_queue_enabled`)
 | `encryption` | string | `required`, `preferred`, `allowed`
-| `fork_features` | string[] | fork-specific capability identifiers. `auto_priority/v1` means the auto-priority settings and per-torrent `auto_priority` field are available. `min_free_space/v1` and `min_free_space_resume_margin/v1` mean this fork's minimum-free-space settings are available. `per_torrent_incomplete_dir/v1` means `incomplete_dir` can be set per torrent via `torrent_add`/`torrent_set` and is returned by `torrent_get`. `torrent_set_incomplete_dir/v1` means the `torrent_set_incomplete_dir` method is available to change the staging directory and optionally move existing data. `torrent_archive/v1` means the `torrent_archive` method is available. `torrent_archive_upload/v1` means `torrent_archive.import` accepts `data_base64`. `status/v2` means statuses `7`, `8`, `9`, and `10` are available when the client opts in via the `X-Transmission-Client-Features` header.
+| `fork_features` | string[] | fork-specific capability identifiers. `auto_priority/v1` means the auto-priority settings and per-torrent `auto_priority` field are available. `min_free_space/v1` and `min_free_space_resume_margin/v1` mean this fork's minimum-free-space settings are available. `per_torrent_incomplete_dir/v1` means `incomplete_dir` can be set per torrent via `torrent_add`/`torrent_set` and is returned by `torrent_get`. `torrent_set_incomplete_dir/v1` means the `torrent_set_incomplete_dir` method is available to change the staging directory and optionally move existing data. `torrent_archive/v1` means the `torrent_archive` method is available. `torrent_archive_upload/v1` means `torrent_archive.import` accepts `data_base64`. `topic_name/v1` and `topic_url/v1` mean the read-only `topic_name` and `topic_url` torrent fields are available; they are read from the top-level `topic name` and `topic url` entries of the torrent metainfo. `status/v2` means statuses `7`, `8`, `9`, and `10` are available when the client opts in via the `X-Transmission-Client-Features` header.
 | `idle_seeding_limit` | number | torrents we're seeding will be stopped if they're idle for this long
 | `idle_seeding_limit_enabled` | boolean | true if the seeding inactivity limit is honored by default
 | `incomplete_dir` | string | path for incomplete torrents, when enabled

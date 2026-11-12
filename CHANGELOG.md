@@ -15,6 +15,8 @@
   downloads with no valid data are moved to the end of the download queue and
   reported as waiting.
 - Per-torrent `incomplete_dir` and the `torrent_set_incomplete_dir` RPC method.
+- Read-only `topic_name` and `topic_url` torrent fields sourced from the
+  top-level metainfo `topic name` and `topic url` entries.
 - `min_free_space` and `min_free_space_resume_margin` session settings.
 - `TR_STATUS_SCRIPT_RUNNING` (`status = 9`) while a torrent-done script is
   running and `TR_STATUS_MOVING` (`status = 10`) while completed data is being
@@ -34,6 +36,8 @@
 
 ### Fixed
 
+- Nonstandard top-level torrent metadata (for example hamster.is `cover url`
+  and `description` fields) is ignored without warning.
 - Archive entries keep the display names stored in their `.resume` files.
 - Torrents paused by the minimum-free-space guard keep their run intent across
   daemon restarts.

@@ -656,6 +656,8 @@ auto constexpr MyStatic = std::array<std::string_view, TR_N_KEYS>{
     "tier"sv, // rpc
     "time-checked"sv, // .resume
     "time_checked"sv, // .resume
+    "topic_name"sv, // rpc
+    "topic_url"sv, // rpc
     "torrent-add"sv, // rpc
     "torrent-added"sv, // rpc
     "torrent-added-notification-enabled"sv, // gtk app, qt app

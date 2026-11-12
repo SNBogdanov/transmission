@@ -667,6 +667,8 @@ enum // NOLINT(performance-enum-size)
     TR_KEY_tier,
     TR_KEY_time_checked_kebab_APICOMPAT,
     TR_KEY_time_checked,
+    TR_KEY_topic_name,
+    TR_KEY_topic_url,
     TR_KEY_torrent_add_kebab_APICOMPAT,
     TR_KEY_torrent_added_kebab_APICOMPAT,
     TR_KEY_torrent_added_notification_enabled_kebab_APICOMPAT,

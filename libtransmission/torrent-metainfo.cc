@@ -259,6 +259,7 @@ struct MetainfoHandler final : public tr::benc::BasicHandler<MaxBencDepth>
             pathStartsWith(InfoKey, FileMediaKey) || //
             pathStartsWith(InfoKey, ProfilesKey) || //
             pathStartsWith(LibtorrentResumeKey) || //
+            pathStartsWith(MetadataKey) || //
             pathStartsWith(NodesKey))
         {
             // unused by Transmission
@@ -333,6 +334,14 @@ struct MetainfoHandler final : public tr::benc::BasicHandler<MaxBencDepth>
         else if (pathIs(CommentKey) || pathIs(CommentUtf8Key))
         {
             tm_.comment_ = tr_strv_to_utf8_string(value);
+        }
+        else if (pathIs(TopicNameKey))
+        {
+            tm_.topic_name_ = tr_strv_to_utf8_string(value);
+        }
+        else if (pathIs(TopicUrlKey))
+        {
+            tm_.topic_url_ = tr_strv_to_utf8_string(value);
         }
         else if (pathIs(CreatedByKey) || pathIs(CreatedByUtf8Key))
         {
@@ -438,6 +447,7 @@ struct MetainfoHandler final : public tr::benc::BasicHandler<MaxBencDepth>
             pathStartsWith(InfoKey, ProfilesKey) || //
             pathStartsWith(LibtorrentResumeKey) || //
             pathStartsWith(MagnetInfoKey) || //
+            pathStartsWith(MetadataKey) || //
             pathStartsWith(NodesKey))
         {
             // unused by Transmission
@@ -622,6 +632,7 @@ private:
     static constexpr std::string_view MagnetInfoKey = "magnet-info"sv;
     static constexpr std::string_view Md5Key = "md5"sv;
     static constexpr std::string_view Md5sumKey = "md5sum"sv;
+    static constexpr std::string_view MetadataKey = "metadata"sv;
     static constexpr std::string_view MetaVersionKey = "meta version"sv;
     static constexpr std::string_view MtimeKey = "mtime"sv;
     static constexpr std::string_view NameKey = "name"sv;
@@ -642,6 +653,8 @@ private:
     static constexpr std::string_view Sha1Key = "sha1"sv;
     static constexpr std::string_view SourceKey = "source"sv;
     static constexpr std::string_view TitleKey = "title"sv;
+    static constexpr std::string_view TopicNameKey = "topic name"sv;
+    static constexpr std::string_view TopicUrlKey = "topic url"sv;
     static constexpr std::string_view UidKey = "uid"sv;
     static constexpr std::string_view UniqueKey = "unique"sv;
     static constexpr std::string_view UrlListKey = "url-list"sv;
