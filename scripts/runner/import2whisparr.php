@@ -54,12 +54,12 @@ else
     }
 }
 
-// When the caller explicitly selects torrents by id, do not let the
-// daemon-provided TR_TORRENT_HASH env value route the request through the
+// When the caller explicitly selects torrents by id (CLI, runner payload or
+// TR_TORRENT_ID env), do not let the hash route the request through the
 // qBittorrent duplicate check. An explicit --hash still takes precedence.
 $explicitIdArg = false;
 $explicitHashArg = false;
-if ($payload === null && isset($argv) && is_array($argv))
+if (isset($argv) && is_array($argv))
 {
     foreach (array_slice($argv, 1) as $arg)
     {
@@ -69,7 +69,10 @@ if ($payload === null && isset($argv) && is_array($argv))
             $explicitHashArg = true;
     }
 }
-if ($payload === null && $explicitIdArg && !$explicitHashArg)
+$idProvided = $payload !== null || $explicitIdArg;
+if ($TR_TORRENT_ID !== false && count((array) $par->ids) > 0)
+    $idProvided = true;
+if ($idProvided && !$explicitHashArg)
 {
     $par->hash = [];
 }
@@ -259,7 +262,9 @@ if ($rpc->connected)
                 ];
                 if (!checkDownloadedMediaInfo($mediaCheckPaths, $extPriority))
                 {
-                    throw new RuntimeException('MediaInfo check failed, processing stopped: ' . $TR_TORRENT_NAME);
+                    cprintf("yellow", "MediaInfo check failed, skip torrent: %s" . PHP_EOL, $TR_TORRENT_NAME);
+                    Logger::warning('MediaInfo check failed, skip torrent: ' . $TR_TORRENT_NAME);
+                    return;
                 }
 
                 // ===== Фаза 1: заполнение массива директорий, остановка торрентов, перенос =====
@@ -269,67 +274,97 @@ if ($rpc->connected)
                 {
                     cprintf("light_blue", "Stop torrent [ %4d ] %s" . PHP_EOL, $TR_TORRENT_ID, $TR_TORRENT_NAME);
                     $rpc->stop($torrent->id);
+                    $stopDeadline = time() + 60;
+                    while (time() < $stopDeadline)
+                    {
+                        $stopRes = $rpc->get($torrent->id, ['id', 'status']);
+                        $stopStatus = $stopRes->arguments->torrents[0]->status ?? null;
+                        if ($stopStatus === TransmissionRPC::TR_STATUS_STOPPED || $stopStatus === null)
+                            break;
+                        sleep(1);
+                    }
                 }
+
+                $sourceDirs = array_values(array_unique(array_filter(array_map(
+                    static fn($dir): string => rtrim((string) $dir, "/\\"),
+                    [$localIncompleteDir, $localDownloadDir]
+                ))));
+                $destinationRoot = rtrim($localDestinationDir, "/\\") . DIRECTORY_SEPARATOR;
+                $moveTorrentFiles = function (array $files) use ($sourceDirs, $destinationRoot, $TR_TORRENT_NAME): bool
+                {
+                    $ok = true;
+                    foreach ($files as $file)
+                    {
+                        $relative = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, (string) $file->name);
+                        $src = null;
+                        $srcSuffix = '';
+                        foreach ($sourceDirs as $sourceDir)
+                        {
+                            $base = $sourceDir . DIRECTORY_SEPARATOR . $relative;
+                            foreach (['', '.part', '.!qB'] as $suffix)
+                            {
+                                if (is_file($base . $suffix))
+                                {
+                                    $src = $base . $suffix;
+                                    $srcSuffix = $suffix;
+                                    break 2;
+                                }
+                            }
+                        }
+                        $dst = $destinationRoot . $relative . $srcSuffix;
+                        if ($src === null)
+                        {
+                            if (is_file($destinationRoot . $relative) || is_file($destinationRoot . $relative . '.part') || is_file($destinationRoot . $relative . '.!qB'))
+                                continue;
+                            if (preg_match(AdvancedRecursiveDirectoryIterator::mediaMask, $relative) !== 1)
+                                continue;
+                            Logger::warning('Import source file not found', ['torrent' => $TR_TORRENT_NAME, 'file' => $relative]);
+                            $ok = false;
+                            continue;
+                        }
+                        if ($src === $dst)
+                            continue;
+                        if (!moveFile($src, $dst, false))
+                        {
+                            Logger::warning('Import move failed', ['src' => $src, 'dst' => $dst]);
+                            $ok = false;
+                        }
+                    }
+                    return $ok;
+                };
 
                 // Перенос из временной папки Transmission в основное назначение
                 if (count($torrent1->files) > 1)
                 {
-                    $reread = false;
-                    if (is_dir($localIncompleteDir . $torrent->name))
+                    if (!$moveTorrentFiles($torrent1->files))
                     {
-                        $rpc->move($torrent->id, $destinationDir, true);
-                        $reread = true;
+                        cprintf("yellow", "Move failed, skip torrent: %s" . PHP_EOL, $TR_TORRENT_NAME);
+                        Logger::warning('Move failed, skip torrent: ' . $TR_TORRENT_NAME);
+                        return;
                     }
-                    if ($reread)
+                    $rpc->move($torrent->id, $destinationDir, false);
+                    foreach ($sourceDirs as $sourceDir)
                     {
-                        $rereadTorrent = null;
-                        $rpc->getAndProcess($torrent->id, $fields, processor: function ($processedTorrent) use (&$rereadTorrent): void
-                        {
-                            $rereadTorrent = $processedTorrent;
-                        });
-                        if ($rereadTorrent === null)
-                            return;
-                        $torrent1 = $rereadTorrent;
+                        if ($sourceDir !== '')
+                            RemoveEmptyDirectories($sourceDir . DIRECTORY_SEPARATOR . $torrent->name);
                     }
-                    foreach ($torrent1->files as $file)
-                    {
-                        foreach ([$localIncompleteDir] as $dir)
-                        {
-                            foreach ([$file->name . ".part"] as $fname)
-                            {
-                                if (isFile($dir . $fname))
-                                {
-                                    moveFile($dir . $fname, $localDestinationDir . $fname);
-                                }
-                            }
-                        }
-                    }
-                    delTree($localIncompleteDir . $torrent->name);
-                    $paths[] = $localDestinationDir . $torrent->name;
+                    $paths[] = $destinationRoot . $torrent->name;
                 }
                 else
                 {
-                    foreach ([$localIncompleteDir] as $dir)
+                    if (!$moveTorrentFiles($torrent1->files))
                     {
-                        if (is_file($dir . $torrent1->files[0]->name) && $dir != $localDestinationDir)
-                        {
-                            $rpc->move($torrent->id, $destinationDir, true);
-                        }
+                        cprintf("yellow", "Move failed, skip torrent: %s" . PHP_EOL, $TR_TORRENT_NAME);
+                        Logger::warning('Move failed, skip torrent: ' . $TR_TORRENT_NAME);
+                        return;
                     }
-                    foreach ($torrent1->files as $file)
+                    $rpc->move($torrent->id, $destinationDir, false);
+                    foreach ($sourceDirs as $sourceDir)
                     {
-                        foreach ([$localIncompleteDir] as $dir)
-                        {
-                            foreach ([$file->name . ".part"] as $fname)
-                            {
-                                if (isFile($dir . $fname))
-                                {
-                                    moveFile($dir . $fname, $localDestinationDir . $fname);
-                                }
-                            }
-                        }
+                        if ($sourceDir !== '')
+                            RemoveEmptyDirectories($sourceDir . DIRECTORY_SEPARATOR . $torrent->name);
                     }
-                    $paths[] = $localDestinationDir . $torrent1->files[0]->name;
+                    $paths[] = $destinationRoot . $torrent1->files[0]->name;
                 }
 
 
@@ -362,32 +397,44 @@ if ($rpc->connected)
                 // ===== Фаза 2: переименование временных файлов + массив импорта =====
                 foreach ($paths as $path)
                 {
-                    if (!checkDownloadedMediaInfo($path, $extPriority))
+                    try
                     {
-                        throw new RuntimeException('MediaInfo check failed, processing stopped: ' . $path);
-                    }
-                    if (is_dir($path))
-                    {
-                        renameTempFiles($path, $extPriority);
-                        $importDir = $path;
-                    }
-                    else
-                    {
-                        renameTempFile($path, $extPriority);
-                        $importDir = dirname($path);
-                    }
+                        if (is_dir($path))
+                        {
+                            renameTempFiles($path, $extPriority);
+                            $importDir = $path;
+                        }
+                        else
+                        {
+                            renameTempFile($path, $extPriority);
+                            $importDir = dirname($path);
+                        }
 
-                    if (!is_dir($importDir))
+                        if (!checkDownloadedMediaInfo($path, $extPriority))
+                        {
+                            cprintf("yellow", "MediaInfo check failed, skip torrent: %s" . PHP_EOL, $path);
+                            Logger::warning('MediaInfo check failed, skip torrent: ' . $path);
+                            return;
+                        }
+
+                        if (!is_dir($importDir))
+                        {
+                            cprintf("yellow", "Target directory not found, skip import: %s" . PHP_EOL, $importDir);
+                            return;
+                        }
+
+                        $imports[] = [
+                            'title' => $TR_TORRENT_NAME,
+                            'hash' => $TR_TORRENT_HASH,
+                            'path' => mapRemoteToLocalPath($importDir, [], null, 'whisparr'),
+                        ];
+                    }
+                    catch (Throwable $e)
                     {
-                        cprintf("yellow", "Target directory not found, skip import: %s" . PHP_EOL, $importDir);
+                        cprintf("yellow", "Import path error, skip torrent: %s (%s)" . PHP_EOL, $path, $e->getMessage());
+                        Logger::warning('Import path error: ' . $e->getMessage(), ['path' => $path]);
                         return;
                     }
-
-                    $imports[] = [
-                        'title' => $TR_TORRENT_NAME,
-                        'hash' => $TR_TORRENT_HASH,
-                        'path' => mapRemoteToLocalPath($importDir, [], null, 'whisparr'),
-                    ];
                 }
                 $removeList[$TR_TORRENT_ID] = ['id' => $TR_TORRENT_ID, 'hash' => $TR_TORRENT_HASH, 'name' => $TR_TORRENT_NAME, 'destinationDir' => $localDestinationDir, 'incompleteDir' => $localIncompleteDir, 'downloadDir' => $localDownloadDir];
 
