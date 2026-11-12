@@ -812,17 +812,11 @@ bool tr_session::wouldViolateMinFreeSpace(tr_torrent const* const tor) const
             return false;
         }
 
-        // Let a torrent finish when continuing it won't consume additional
-        // space (the files are already preallocated) or only a small tail
-        // remains. Finishing can free the staging directory when the
-        // completion move runs.
+        // A finished torrent, or one whose files are already fully allocated,
+        // will not consume additional space. A small remaining tail is not
+        // enough on its own: those bytes still have to be allocated.
         auto const remaining = tor->left_until_done();
-        if (remaining == 0 || remaining <= min_free_space_resume_margin_bytes_)
-        {
-            return false;
-        }
-
-        if (tor->size_on_disk() >= tor->size_when_done())
+        if (remaining == 0 || tor->size_on_disk() >= tor->size_when_done())
         {
             return false;
         }
@@ -1056,11 +1050,11 @@ void tr_session::updateFreeSpaceLimits()
         auto const& info = dir_info(tor->current_dir().sv());
         if (info.limit && info.free <= *info.limit)
         {
-            // A tiny remaining tail (or a finished torrent) is allowed to
-            // continue even below the floor so it can complete and free the
-            // staging directory.
+            // A finished torrent or one whose files are already fully
+            // allocated can continue without consuming more space. A small
+            // unallocated tail still needs space, so it is paused too.
             auto const remaining = tor->left_until_done();
-            if (remaining != 0 && remaining > min_free_space_resume_margin_bytes_)
+            if (remaining != 0 && tor->size_on_disk() < tor->size_when_done())
             {
                 tr_logAddInfoTor(
                     tor,
@@ -1079,8 +1073,8 @@ void tr_session::updateFreeSpaceLimits()
         }
 
         auto const& info = dir_info(tor->current_dir().sv());
-        if (!info.limit || info.free >= *info.limit + min_free_space_resume_margin_bytes_ ||
-            tor->left_until_done() <= min_free_space_resume_margin_bytes_)
+        if (!info.limit || info.free >= *info.limit + min_free_space_resume_margin_bytes_ || tor->left_until_done() == 0 ||
+            tor->size_on_disk() >= tor->size_when_done())
         {
             tor->resume_after_space();
         }
