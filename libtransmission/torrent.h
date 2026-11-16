@@ -913,6 +913,8 @@ struct tr_torrent
         return data_lock_count_ != 0;
     }
 
+    [[nodiscard]] bool is_write_backpressured() const;
+
     void lock_data();
     void unlock_data();
 

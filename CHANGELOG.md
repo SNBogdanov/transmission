@@ -46,6 +46,8 @@
   unallocated torrent start and consume new space.
 - Diagnostic logs for local-data write backpressure, piece verification
   failures, and torrent completeness changes.
+- Torrents that hit local write backpressure no longer receive new block
+  requests until the write queue drains.
 - Script-runner and torrent-done scripts hold a per-torrent data lock while
   they run: local data descriptors are closed, reads, writes, and verification
   are rejected, and the lock is released when the script exits, times out, or

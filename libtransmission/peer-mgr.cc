@@ -1330,6 +1330,14 @@ std::vector<tr_block_span_t> tr_peerMgrGetNextRequests(tr_torrent* torrent, tr_p
 {
     TR_ASSERT(!torrent->is_done());
 
+    // Do not hand out new blocks while this torrent's local writes are
+    // backpressured; otherwise peers keep sending data that is rejected and
+    // immediately has to be downloaded again.
+    if (torrent->is_write_backpressured())
+    {
+        return {};
+    }
+
     if (auto& controller = torrent->swarm->wishlist_controller)
     {
         auto* const swarm = torrent->swarm;

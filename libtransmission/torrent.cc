@@ -31,6 +31,7 @@
 #include "libtransmission/file-utils.h"
 #include "libtransmission/file.h"
 #include "libtransmission/inout.h" // tr_ioTestPiece()
+#include "libtransmission/local-data.h"
 #include "libtransmission/log.h"
 #include "libtransmission/magnet-metainfo.h"
 #include "libtransmission/peer-common.h"
@@ -2142,6 +2143,11 @@ void tr_torrentStartNow(tr_torrent* tor)
 
     tor->start_when_stable_ = true;
     tor->start(true /*bypass_queue*/, {});
+}
+
+bool tr_torrent::is_write_backpressured() const
+{
+    return session != nullptr && session->local_data.pending_write_bytes(id()) >= tr::LocalData::MaxPendingWriteBytesPerTorrent;
 }
 
 void tr_torrent::lock_data()
