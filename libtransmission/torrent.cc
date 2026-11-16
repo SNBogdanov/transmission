@@ -2144,6 +2144,34 @@ void tr_torrentStartNow(tr_torrent* tor)
     tor->start(true /*bypass_queue*/, {});
 }
 
+void tr_torrent::lock_data()
+{
+    auto const lock = unique_lock();
+
+    if (data_lock_count_++ != 0U)
+    {
+        return;
+    }
+
+    // Make sure the external script can move the files: no descriptor may
+    // remain open while the lock is held.
+    session->local_data.close_torrent_sync(id());
+}
+
+void tr_torrent::unlock_data()
+{
+    auto const lock = unique_lock();
+
+    if (data_lock_count_ == 0U || --data_lock_count_ != 0U)
+    {
+        return;
+    }
+
+    // If the script moved or removed the data without removing the torrent,
+    // surface that as a local error instead of silently re-downloading it.
+    static_cast<void>(set_local_error_if_files_disappeared(this));
+}
+
 // ---
 
 void tr_torrentVerify(tr_torrent* tor)

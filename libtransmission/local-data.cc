@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -127,6 +128,10 @@ public:
         {
             return TR_ERROR_EINVAL;
         }
+        if (tor->is_data_locked())
+        {
+            return EBUSY;
+        }
 
         auto const loc = tor->block_info().byte_loc(byte_span.begin);
         setme.resize(span_size);
@@ -142,6 +147,10 @@ public:
         if (tor == nullptr || piece >= tor->piece_count())
         {
             return TR_ERROR_EINVAL;
+        }
+        if (tor->is_data_locked())
+        {
+            return EBUSY;
         }
 
         auto const result = recalculate_hash(*this, id, tor->block_info(), piece);
@@ -175,6 +184,10 @@ public:
         if (tor == nullptr)
         {
             return TR_ERROR_EINVAL;
+        }
+        if (tor->is_data_locked())
+        {
+            return EBUSY;
         }
 
         auto const loc = tor->block_info().byte_loc(byte_span.begin);
@@ -471,6 +484,26 @@ public:
         };
 
         enqueue(std::move(task));
+    }
+
+    void close_torrent_sync(tr_torrent_id_t const tor_id)
+    {
+        auto done = std::make_shared<std::promise<void>>();
+        auto future = done->get_future();
+        auto task = Task{
+            .id = tor_id,
+            .op = Op::CloseTorrent,
+            .run =
+                [this, tor_id, done]()
+            {
+                backend_->close_torrent(tor_id);
+                done->set_value();
+            },
+            .cancel = [done]() { done->set_value(); },
+        };
+
+        enqueue(std::move(task));
+        future.wait();
     }
 
     void close_file(tr_torrent_id_t const tor_id, tr_file_index_t const file_num)
@@ -905,6 +938,11 @@ void LocalData::write(
 void LocalData::close_torrent(tr_torrent_id_t const tor_id)
 {
     impl_->close_torrent(tor_id);
+}
+
+void LocalData::close_torrent_sync(tr_torrent_id_t const tor_id)
+{
+    impl_->close_torrent_sync(tor_id);
 }
 
 void LocalData::close_file(tr_torrent_id_t const tor_id, tr_file_index_t const file_num)

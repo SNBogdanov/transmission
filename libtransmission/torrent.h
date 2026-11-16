@@ -908,6 +908,14 @@ struct tr_torrent
         script_running_ = is_running;
     }
 
+    [[nodiscard]] constexpr bool is_data_locked() const noexcept
+    {
+        return data_lock_count_ != 0;
+    }
+
+    void lock_data();
+    void unlock_data();
+
     /** True while the torrent's data is being relocated. Completed torrents
         report TR_STATUS_PENDING_MOVE instead of TR_STATUS_SEED until the move
         finishes, so clients do not treat them as complete too early. */
@@ -1597,6 +1605,7 @@ private:
 
     bool script_on_done_pending_ = false;
     bool script_running_ = false;
+    uint32_t data_lock_count_ = 0;
 
     bool finished_seeding_by_idle_ = false;
 

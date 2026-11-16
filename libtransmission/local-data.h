@@ -100,6 +100,7 @@ public:
     void test_piece(tr_torrent_id_t id, tr_piece_index_t piece, OnTest on_test);
     void write(tr_torrent_id_t id, tr_byte_span_t byte_span, std::unique_ptr<BlockData> data, OnWrite on_write);
     void close_torrent(tr_torrent_id_t tor_id);
+    void close_torrent_sync(tr_torrent_id_t tor_id);
     void close_file(tr_torrent_id_t tor_id, tr_file_index_t file_num);
     void close_all();
     void move(

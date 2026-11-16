@@ -868,6 +868,9 @@ struct Job
     std::string id;
     std::string token_hash;
     std::string script_id;
+    tr_session* session = nullptr;
+    std::vector<tr_torrent_id_t> owner_ids;
+    bool data_locked = false;
     State state = State::Queued;
     int64_t exit_code = 0;
     bool has_exit_code = false;
@@ -888,6 +891,45 @@ struct Job
     int64_t queued_at = 0;
     int64_t started_at = 0;
     int64_t finished_at = 0;
+
+    void lock_owners()
+    {
+        if (data_locked || session == nullptr)
+        {
+            return;
+        }
+
+        for (auto const tor_id : owner_ids)
+        {
+            if (auto* const tor = session->torrents().get(tor_id); tor != nullptr)
+            {
+                tor->lock_data();
+            }
+        }
+
+        data_locked = true;
+    }
+
+    void unlock_owners()
+    {
+        if (!data_locked)
+        {
+            return;
+        }
+
+        if (session != nullptr)
+        {
+            for (auto const tor_id : owner_ids)
+            {
+                if (auto* const tor = session->torrents().get(tor_id); tor != nullptr)
+                {
+                    tor->unlock_data();
+                }
+            }
+        }
+
+        data_locked = false;
+    }
 
     std::mutex mutex;
     std::shared_ptr<ProcessRuntime> process;
@@ -1302,6 +1344,7 @@ void log_job_finished(Job const& job, std::string_view const client_id)
     std::map<std::string, ExternalHost const*> const& selected_hosts,
     tr_variant::Map const& request,
     std::string& payload_out,
+    std::vector<tr_torrent_id_t>& owner_ids_out,
     std::string& error)
 {
     auto lock = session->unique_lock();
@@ -1519,6 +1562,13 @@ void log_job_finished(Job const& job, std::string_view const client_id)
     payload.try_emplace(q("download_dir"), tr_variant{ std::move(download_dir_vec) });
     payload.try_emplace(q("files"), tr_variant{ std::move(files_vec) });
 
+    owner_ids_out.clear();
+    owner_ids_out.reserve(std::size(owners));
+    for (auto const* const tor : owners)
+    {
+        owner_ids_out.emplace_back(tor->id());
+    }
+
     auto const serialized = tr_variant_serde::json().compact().to_string(tr_variant{ std::move(payload) });
     if (static_cast<int64_t>(std::size(serialized)) > config.max_payload_bytes)
     {
@@ -1686,6 +1736,7 @@ struct Impl
         tr_variant::Map const& parameters,
         tr_variant::Map const& external_hosts,
         std::string const& payload,
+        std::vector<tr_torrent_id_t> const& owner_ids,
         std::string const& client_id,
         std::shared_ptr<Job>& out_job,
         std::string& token,
@@ -2099,6 +2150,7 @@ bool Impl::start_job(
     tr_variant::Map const& /*parameters*/,
     tr_variant::Map const& /*external_hosts*/,
     std::string const& payload,
+    std::vector<tr_torrent_id_t> const& owner_ids,
     std::string const& client_id,
     std::shared_ptr<Job>& out_job,
     std::string& token,
@@ -2109,9 +2161,12 @@ bool Impl::start_job(
     token = random_hex(32);
     job->token_hash = sha256_hex(token);
     job->script_id = script.id;
+    job->session = session;
+    job->owner_ids = owner_ids;
     job->max_output = script.max_output_bytes;
     job->queued_at = static_cast<int64_t>(std::time(nullptr));
     job->started_at = job->queued_at;
+    job->lock_owners();
     tr_logAddInfo(fmt::format("script runner: starting job {} script '{}' client '{}'", job->id, script.id, client_id));
 
     auto env = script.env;
@@ -2138,6 +2193,7 @@ bool Impl::start_job(
         CreatePipe(&process->stderr_read, &process->stderr_write, &sa, 0) == 0)
     {
         error = "script execution failed";
+        job->unlock_owners();
         return false;
     }
 
@@ -2204,6 +2260,7 @@ bool Impl::start_job(
     if (created == 0)
     {
         error = fmt::format("script execution failed: CreateProcessW error {}", GetLastError());
+        job->unlock_owners();
         return false;
     }
 
@@ -2314,6 +2371,8 @@ bool Impl::start_job(
                 }
             }
 
+            job_ptr->unlock_owners();
+
             CloseHandle(process_ptr->stdout_read);
             process_ptr->stdout_read = nullptr;
             CloseHandle(process_ptr->stderr_read);
@@ -2336,6 +2395,7 @@ bool Impl::start_job(
     if (pipe(std::data(stdin_pipe)) != 0 || pipe(std::data(stdout_pipe)) != 0 || pipe(std::data(stderr_pipe)) != 0)
     {
         error = "script execution failed";
+        job->unlock_owners();
         return false;
     }
 
@@ -2387,6 +2447,7 @@ bool Impl::start_job(
     if (pid < 0)
     {
         error = "script execution failed: fork";
+        job->unlock_owners();
         return false;
     }
 
@@ -2559,6 +2620,8 @@ bool Impl::start_job(
                     job_ptr->state = Job::State::Failed;
                 }
             }
+
+            job_ptr->unlock_owners();
 
             close_fd(process_ptr->stdout_read);
             close_fd(process_ptr->stderr_read);
@@ -2763,7 +2826,17 @@ std::pair<JsonRpc::Error::Code, std::string> tr_script_runner::run(
     }
 
     auto payload_text = std::string{};
-    if (!build_execution_payload(session, config, *script_iter, parameters, selected_hosts, *payload, payload_text, error))
+    auto owner_ids = std::vector<tr_torrent_id_t>{};
+    if (!build_execution_payload(
+            session,
+            config,
+            *script_iter,
+            parameters,
+            selected_hosts,
+            *payload,
+            payload_text,
+            owner_ids,
+            error))
     {
         return { Error::INVALID_PARAMS, std::move(error) };
     }
@@ -2777,6 +2850,7 @@ std::pair<JsonRpc::Error::Code, std::string> tr_script_runner::run(
             parameters,
             tr_variant::Map{},
             payload_text,
+            owner_ids,
             std::string{ client_id },
             job,
             token,
