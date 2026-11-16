@@ -2462,6 +2462,14 @@ void tr_torrent::recheck_completeness()
                 "State changed from {} to {}",
                 get_completion_string(completeness_),
                 get_completion_string(new_completeness)));
+        tr_logAddInfoTor(
+            this,
+            fmt::format(
+                "Completeness changed from {} to {}: haveValid={} left={}",
+                get_completion_string(completeness_),
+                get_completion_string(new_completeness),
+                completion_.has_valid(),
+                left_until_done()));
 
         completeness_ = new_completeness;
 
@@ -2961,7 +2969,7 @@ void tr_torrent::on_piece_completed(tr_piece_index_t const piece)
 
 void tr_torrent::on_piece_failed(tr_piece_index_t const piece)
 {
-    tr_logAddDebugTor(this, fmt::format("Piece {}, which was just downloaded, failed its checksum test", piece));
+    tr_logAddWarnTor(this, fmt::format("Piece {}, which was just downloaded, failed its checksum test", piece));
 
     auto const n = piece_size(piece);
     bytes_corrupt_ += n;

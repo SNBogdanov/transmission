@@ -44,6 +44,8 @@
 - Space-paused torrents resume only when free-space headroom returns or their
   files are already fully allocated. A small remaining tail no longer lets an
   unallocated torrent start and consume new space.
+- Diagnostic logs for local-data write backpressure, piece verification
+  failures, and torrent completeness changes.
 - Script-runner and torrent-done scripts hold a per-torrent data lock while
   they run: local data descriptors are closed, reads, writes, and verification
   are rejected, and the lock is released when the script exits, times out, or

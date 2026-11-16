@@ -9,6 +9,7 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
+#include <ctime>
 #include <deque>
 #include <future>
 #include <memory>
@@ -24,11 +25,14 @@
 #include <utility>
 #include <vector>
 
+#include <fmt/format.h>
+
 #include "libtransmission/local-data.h"
 
 #include "libtransmission/crypto-utils.h"
 #include "libtransmission/error.h"
 #include "libtransmission/inout.h"
+#include "libtransmission/log.h"
 #include "libtransmission/open-files.h"
 #include "libtransmission/torrent.h"
 #include "libtransmission/torrents.h"
@@ -156,7 +160,9 @@ public:
         auto const result = recalculate_hash(*this, id, tor->block_info(), piece);
         if (!result.hash)
         {
-            return result.error != 0 ? result.error : EIO;
+            auto const err = result.error != 0 ? result.error : EIO;
+            tr_logAddWarnTor(tor, fmt::format("Local data test failed for piece {}: error {}", piece, err));
+            return err;
         }
 
         setme_hash = *result.hash;
@@ -447,12 +453,13 @@ public:
 
         auto accepted = false;
         auto shutting_down = false;
+        auto pending = uint64_t{};
 
         {
             auto const lock = std::lock_guard(mutex_);
 
             auto const iter = pending_write_bytes_.find(id);
-            auto const pending = iter == std::end(pending_write_bytes_) ? uint64_t{} : iter->second;
+            pending = iter == std::end(pending_write_bytes_) ? uint64_t{} : iter->second;
 
             if (shutting_down_)
             {
@@ -467,6 +474,32 @@ public:
 
         if (!accepted)
         {
+            if (!shutting_down)
+            {
+                auto const now = static_cast<int64_t>(std::time(nullptr));
+                auto log_rejection = false;
+                {
+                    auto const lock = std::lock_guard(mutex_);
+                    auto& last_logged = last_write_reject_log_[id];
+                    if (now - last_logged >= 60)
+                    {
+                        last_logged = now;
+                        log_rejection = true;
+                    }
+                }
+
+                if (log_rejection)
+                {
+                    tr_logAddWarn(
+                        fmt::format(
+                            "local data write rejected: torrent={} bytes={} pending={} limit={}",
+                            id,
+                            len,
+                            pending,
+                            MaxPendingWriteBytesPerTorrent));
+                }
+            }
+
             (*callback)(id, byte_span, make_error(shutting_down ? ECANCELED : EAGAIN));
             return;
         }
@@ -897,6 +930,7 @@ private:
 
     uint64_t enqueued_write_bytes_ = 0;
     std::unordered_map<tr_torrent_id_t, uint64_t> pending_write_bytes_;
+    std::unordered_map<tr_torrent_id_t, int64_t> last_write_reject_log_;
     size_t pending_non_read_ = 0;
     size_t active_non_read_ = 0;
 
