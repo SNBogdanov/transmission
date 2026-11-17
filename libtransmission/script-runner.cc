@@ -904,6 +904,7 @@ struct Job
             if (auto* const tor = session->torrents().get(tor_id); tor != nullptr)
             {
                 tor->lock_data();
+                tor->set_script_running(true);
             }
         }
 
@@ -923,6 +924,7 @@ struct Job
             {
                 if (auto* const tor = session->torrents().get(tor_id); tor != nullptr)
                 {
+                    tor->set_script_running(false);
                     tor->unlock_data();
                 }
             }

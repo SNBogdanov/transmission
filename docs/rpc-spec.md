@@ -421,7 +421,7 @@ Files are returned in the order they are laid out in the torrent. References to 
 | 6 | Torrent is seeding
 | 7 | Torrent is paused because of insufficient free space
 | 8 | Torrent is waiting for free space to move data to the download directory
-| 9 | Torrent is running its torrent-done script
+| 9 | Torrent is running a torrent-done or script-runner script
 | 10 | Torrent is moving data to the download directory
 
 Clients that do not support the extended statuses receive legacy values: `7` is reported as `0` (stopped), and `8`, `9`, and `10` are reported as `4` (downloading). Status `8` is reported while a completed torrent is waiting for space, status `10` while its data is being moved, and status `9` while its done script is running, so legacy clients do not treat it as finished and do not start importing its files before post-processing completes; `isFinished` is false during this period. To receive `7`, `8`, `9`, and `10`, send `X-Transmission-Client-Features: status/v2` in the request headers. The server advertises this capability as `status/v2` in `fork_features`.
@@ -841,6 +841,8 @@ also return `size` (number) and `sha256` (string) for the uploaded bundle.
 | `lpd_enabled` | boolean | true means allow Local Peer Discovery in public torrents
 | `min_free_space` | string[] | minimum free space rules, one `path=size` entry per path. The rule with the longest matching path applies to a directory. Sizes accept binary suffixes (`K`, `M`, `G`, `T`), e.g. `"/share/Video=200G"`.
 | `min_free_space_resume_margin` | string | extra free space required above a limit before resuming torrents paused by that limit, e.g. `"64M"`
+| `move_completed_torrents_enabled` | boolean | true means the daemon moves completed torrents from `incomplete_dir` to `download_dir`; when false the done script is responsible for the move (fork extension)
+| `move_partial_files_enabled` | boolean | true means move `.part` and `.!qB` files when relocating torrent data; false leaves partial files in the source directory (fork extension)
 | `peer_limit_global` | number | maximum global number of peers
 | `peer_limit_per_torrent` | number | maximum number of peers per torrent
 | `peer_port_random_on_start` | boolean | true means pick a random peer port on launch
@@ -863,6 +865,9 @@ also return `size` (number) and `sha256` (string) for the uploaded bundle.
 | `script_torrent_done_filename` | string | filename of the script to run, optionally followed by arguments
 | `script_torrent_done_seeding_enabled` | boolean | whether or not to call the `seeding_done` script
 | `script_torrent_done_seeding_filename` | string | filename of the script to run, optionally followed by arguments
+| `script_torrent_done_remove_all_files_enabled` | boolean | true means the done script removes the torrent and all its local data; this overrides the other two remove flags (fork extension)
+| `script_torrent_done_remove_temp_files_enabled` | boolean | true means the done script removes temporary and unwanted files after import, but only when no wanted data remains in the incomplete directory (fork extension)
+| `script_torrent_done_remove_torrent_enabled` | boolean | true means the done script removes the torrent from the session without deleting completed data (fork extension)
 | `seed_queue_enabled` | boolean | if true, limit how many torrents can be uploaded at once
 | `seed_queue_size` | number | max number of torrents to uploaded at once (see `seed_queue_enabled`)
 | `seed_ratio_limit` | double | the default seed ratio for torrents to use

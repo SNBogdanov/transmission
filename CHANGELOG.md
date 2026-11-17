@@ -48,6 +48,8 @@
   failures, and torrent completeness changes.
 - Torrents that hit local write backpressure no longer receive new block
   requests until the write queue drains.
+- Torrents selected by a script-runner job report `TR_STATUS_SCRIPT_RUNNING`
+  (`status = 9`) for the duration of that job.
 - Script-runner and torrent-done scripts hold a per-torrent data lock while
   they run: local data descriptors are closed, reads, writes, and verification
   are rejected, and the lock is released when the script exits, times out, or
