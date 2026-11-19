@@ -2,6 +2,11 @@
 
 ## Workflow
 
+- **Ask before every stage. Never treat a previous answer as approval for the next stage.**
+  A build approval is not deploy approval; a deploy approval for one target/round is not
+  approval for another target/round. Ask again immediately before each build, deploy,
+  restart, or configuration/script change, even if the previous answer mentioned a
+  following stage.
 - After code changes, ask whether a build is needed. Do not build silently.
 - **Build/deploy only via subagents** `transmission-build` / `transmission-deploy`.
   The main session does not run `cmake`/`ssh`/copy commands itself: it asks for targets,
@@ -11,6 +16,9 @@
   `transmission, qnap, sergeybo02, samsung-pc`). The agent runs them in one invocation;
   the main session must not build/deploy between targets. After a test confirmation, the
   main session invokes the agent again with the remaining targets.
+- **Never run builds in parallel.** Build targets sequentially and wait for the current
+  build to finish before starting the next one. Do not start a second build (another
+  target, session, or agent) while a build is running.
 - A build that includes Linux/QNAP is split by the required commit/push: build `Windows`
   alone first, then run `/commit` (`git-commit` subagent), then build `Linux, QNAP` together.
   Commit/push is not a build/deploy step, so it does not break the one-invocation-per-stage
@@ -40,7 +48,7 @@
 
 ## Build
 
-Build three artifact types:
+Build three artifact types **sequentially, never in parallel**:
 
 1. Windows
 2. Linux
