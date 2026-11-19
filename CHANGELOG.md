@@ -50,6 +50,9 @@
   requests until the write queue drains.
 - Torrents selected by a script-runner job report `TR_STATUS_SCRIPT_RUNNING`
   (`status = 9`) for the duration of that job.
+- A completed torrent is not partially moved when a wanted file is missing:
+  the move now fails before moving/copying anything or removing source
+  directories.
 - Script-runner and torrent-done scripts hold a per-torrent data lock while
   they run: local data descriptors are closed, reads, writes, and verification
   are rejected, and the lock is released when the script exits, times out, or

@@ -242,6 +242,31 @@ bool tr_torrent_files::move(
         return true;
     }
 
+    // A completed torrent must have every wanted file either in the source
+    // or already at the destination. Do this before moving anything so a
+    // missing file cannot cause a partial move followed by cleanup of the
+    // source directories.
+    if (torrent_is_done)
+    {
+        auto const source_and_target = std::array<std::string_view, 2>{ old_parent.sv(), parent.sv() };
+        for (tr_file_index_t i = 0, n = file_count(); i < n; ++i)
+        {
+            if (file_size(i) == 0U || (is_file_wanted && !is_file_wanted(i)))
+            {
+                continue;
+            }
+
+            if (!find(i, std::data(source_and_target), std::size(source_and_target)))
+            {
+                if (error != nullptr)
+                {
+                    error->set(ENOENT, fmt::format("Missing wanted file '{}'", path(i)));
+                }
+                return false;
+            }
+        }
+    }
+
     if (!tr_sys_dir_create(parent, TR_SYS_DIR_CREATE_PARENTS, 0777, error))
     {
         return false;
