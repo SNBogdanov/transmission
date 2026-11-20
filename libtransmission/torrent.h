@@ -883,6 +883,22 @@ struct tr_torrent
         return sequential_download_from_piece_;
     }
 
+    // Set while the torrent is still fetching its metadata: once the metadata
+    // is complete, the torrent is stopped instead of downloading its data.
+    [[nodiscard]] constexpr bool is_metadata_only() const noexcept
+    {
+        return metadata_only_;
+    }
+
+    void set_metadata_only(bool metadata_only) noexcept
+    {
+        if (metadata_only != metadata_only_)
+        {
+            metadata_only_ = metadata_only;
+            set_dirty();
+        }
+    }
+
     [[nodiscard]] constexpr bool is_running() const noexcept
     {
         return is_running_;
@@ -1616,6 +1632,8 @@ private:
     bool auto_priority_ = false;
 
     bool sequential_download_ = false;
+
+    bool metadata_only_ = false;
 
     tr_piece_index_t sequential_download_from_piece_ = 0;
 

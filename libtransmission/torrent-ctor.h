@@ -236,6 +236,16 @@ public:
         optional_args_[mode].sequential_download_from_piece_ = piece;
     }
 
+    [[nodiscard]] constexpr auto const& metadata_only(tr_ctorMode const mode) const noexcept
+    {
+        return optional_args_[mode].metadata_only_;
+    }
+
+    constexpr void set_metadata_only(tr_ctorMode const mode, bool const metadata_only) noexcept
+    {
+        optional_args_[mode].metadata_only_ = metadata_only;
+    }
+
 private:
     struct OptionalArgs
     {
@@ -243,6 +253,7 @@ private:
         std::optional<bool> auto_priority_;
         std::optional<bool> sequential_download_;
         std::optional<tr_piece_index_t> sequential_download_from_piece_;
+        std::optional<bool> metadata_only_;
         std::optional<uint16_t> peer_limit_;
         std::string download_dir_;
     };

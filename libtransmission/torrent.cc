@@ -1414,6 +1414,19 @@ void tr_torrent::set_metainfo(tr_torrent_metainfo tm)
     on_metainfo_completed();
     this->on_announce_list_changed();
     apply_auto_priorities();
+
+    if (metadata_only_)
+    {
+        // The metadata is complete, so there is nothing left to fetch.
+        // Clear the request and stop instead of downloading the data.
+        set_metadata_only(false);
+        tr_logAddInfoTor(this, _("Metadata is complete, stopping metadata-only torrent"));
+
+        if (is_running() || start_when_stable_)
+        {
+            tr_torrentStop(this);
+        }
+    }
 }
 
 tr_torrent* tr_torrentNew(tr_ctor* ctor, tr_torrent** setme_duplicate_of)

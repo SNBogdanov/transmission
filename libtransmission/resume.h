@@ -45,6 +45,7 @@ auto inline constexpr Group = fields_t{ 1 << 23 };
 auto inline constexpr SequentialDownload = fields_t{ 1 << 24 };
 auto inline constexpr SequentialDownloadFromPiece = fields_t{ 1 << 25 };
 auto inline constexpr AutoPriority = fields_t{ 1 << 26 };
+auto inline constexpr MetadataOnly = fields_t{ 1 << 27 };
 
 auto inline constexpr All = ~fields_t{ 0 };
 

@@ -17,6 +17,10 @@
 - Per-torrent `incomplete_dir` and the `torrent_set_incomplete_dir` RPC method.
 - Read-only `topic_name` and `topic_url` torrent fields sourced from the
   top-level metainfo `topic name` and `topic url` entries.
+- `metadata_only` torrent field: a magnet added with this flag stops as soon as
+  its metadata is complete instead of downloading the data. The flag is
+  accepted by `torrent-add`, can be changed with `torrent-set`, returned by
+  `torrent-get`, and is persisted in the resume file while pending.
 - `min_free_space` and `min_free_space_resume_margin` session settings.
 - `TR_STATUS_SCRIPT_RUNNING` (`status = 9`) while a torrent-done script is
   running and `TR_STATUS_MOVING` (`status = 10`) while completed data is being

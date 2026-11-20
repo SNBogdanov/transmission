@@ -773,6 +773,7 @@ namespace make_torrent_field_helpers
     case TR_KEY_magnet_link:
     case TR_KEY_manual_announce_time:
     case TR_KEY_max_connected_peers:
+    case TR_KEY_metadata_only:
     case TR_KEY_metadata_percent_complete:
     case TR_KEY_name:
     case TR_KEY_peer_limit:
@@ -915,6 +916,8 @@ namespace make_torrent_field_helpers
         return tr_announcerNextManualAnnounce(&tor);
     case TR_KEY_max_connected_peers:
         return tor.peer_limit();
+    case TR_KEY_metadata_only:
+        return tor.is_metadata_only();
     case TR_KEY_metadata_percent_complete:
         return st.metadata_percent_complete;
     case TR_KEY_name:
@@ -1422,6 +1425,11 @@ namespace make_torrent_field_helpers
             tor->set_sequential_download(*val);
         }
 
+        if (auto const val = args_in.value_if<bool>(TR_KEY_metadata_only); val)
+        {
+            tor->set_metadata_only(*val);
+        }
+
         if (auto const val = args_in.value_if<int64_t>(TR_KEY_sequential_download_from_piece); val && err == Error::SUCCESS)
         {
             std::tie(err, errmsg) = set_sequential_download_from_piece(*tor, *val);
@@ -1799,6 +1807,15 @@ void add_torrent_impl(struct tr_rpc_idle_data* data, tr_ctor& ctor)
         return;
     }
 
+    // A .torrent already carries the metadata, so a metadata-only request is
+    // satisfied as soon as the torrent is added: stop it before it downloads
+    // any data.
+    if (tor->is_metadata_only() && tor->has_metainfo())
+    {
+        tor->set_metadata_only(false);
+        tr_torrentStop(tor);
+    }
+
     data->session->rpcNotify(TR_RPC_TORRENT_ADDED, tor->id());
     data->args_out.try_emplace(
         TR_KEY_torrent_added,
@@ -1986,6 +2003,11 @@ void torrentAdd(tr_session* session, tr_variant::Map const& args_in, tr_rpc_idle
     if (auto const val = args_in.value_if<int64_t>(TR_KEY_sequential_download_from_piece); val)
     {
         ctor.set_sequential_download_from_piece(TR_FORCE, *val);
+    }
+
+    if (auto const val = args_in.value_if<bool>(TR_KEY_metadata_only); val)
+    {
+        ctor.set_metadata_only(TR_FORCE, *val);
     }
 
     tr_logAddTrace(fmt::format("torrentAdd: filename is '{}'", filename));
@@ -2968,6 +2990,7 @@ using SessionAccessors = std::pair<SessionGetter, SessionSetter>;
             auto vec = tr_variant::Vector{};
             vec.emplace_back("auto_priority/v1");
             vec.emplace_back("force_finish_partial_files/v1");
+            vec.emplace_back("metadata_only/v1");
             vec.emplace_back("min_free_space/v1");
             vec.emplace_back("min_free_space_resume_margin/v1");
             vec.emplace_back("move_completed_torrents/v1");

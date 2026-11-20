@@ -346,6 +346,7 @@ auto constexpr MyStatic = std::array<std::string_view, TR_N_KEYS>{
     "message-level"sv, // daemon, gtk app, tr_session::Settings
     "message_level"sv, // daemon, gtk app, tr_session::Settings
     "metadataPercentComplete"sv, // rpc
+    "metadata_only"sv, // .resume, rpc
     "metadata_percent_complete"sv, // rpc
     "metadata_size"sv, // BEP0009; BT protocol
     "metainfo"sv, // rpc

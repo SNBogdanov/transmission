@@ -191,6 +191,7 @@ Request parameters:
 | `incomplete_dir`                 | string   | per-torrent directory for incomplete data (fork extension). Changes the path only; use `torrent_set_incomplete_dir` with `move` to move existing data.
 | `labels`                         | array    | array of string labels
 | `location`                       | string   | new location of the torrent's content
+| `metadata_only`                  | boolean  | stop the torrent as soon as its metadata is complete (fork extension); the flag clears itself when applied
 | `peer_limit`                     | number   | maximum number of peers
 | `priority_high`                  | array    | indices of high-priority file(s)
 | `priority_low`                   | array    | indices of low-priority file(s)
@@ -296,6 +297,7 @@ The 'source' column here corresponds to the data structure there.
 | `magnet_link` | string | n/a
 | `manual_announce_time` | number | **DEPRECATED** don't use it, it never worked
 | `max_connected_peers` | number | tr_torrent
+| `metadata_only` | boolean | tr_torrent (fork extension)
 | `metadata_percent_complete` | double | tr_stat
 | `name` | string | tr_torrent_view
 | `peer_limit` | number | tr_torrent
@@ -536,6 +538,7 @@ Request parameters:
 | `incomplete_dir`                 | string    | per-torrent directory for incomplete data (fork extension)
 | `labels`                         | array     | array of string labels
 | `metainfo`                       | string    | base64-encoded .torrent content
+| `metadata_only`                  | boolean   | magnet only: stop the torrent as soon as its metadata is complete instead of downloading the data (fork extension)
 | `paused`                         | boolean   | if true, don't start the torrent
 | `peer_limit`                     | number    | maximum number of peers
 | `auto_priority`                  | boolean   | automatically reprioritize this torrent's files (fork extension)
@@ -554,6 +557,14 @@ Either `filename` **or** `metainfo` **must** be included. All other parameters a
 used while the torrent is incomplete; on completion the torrent is moved to
 `download_dir`, subject to the `min_free_space` rules. When omitted, the
 session-level `incomplete_dir` is used as a fallback.
+
+`metadata_only` is a fork extension for magnet links: the torrent runs until its
+metadata (info dictionary) is complete, then it is stopped, so its data is not
+downloaded. The flag is stored in the resume file while it is pending and is
+cleared once applied, which means `metadata_only` is `false` for a torrent that
+has already finished fetching metadata. Adding a `.torrent` file with
+`metadata_only` stops the torrent right after it is added, since its metadata is
+already present.
 
 The format of the `cookies` should be `NAME=CONTENTS`, where `NAME` is the cookie name and `CONTENTS` is what the cookie should contain. Set multiple cookies like this: `name1=content1; name2=content2;` etc. See [libcurl documentation](http://curl.haxx.se/libcurl/c/curl_easy_setopt.html#CURLOPTCOOKIE) for more information.
 
@@ -833,7 +844,7 @@ also return `size` (number) and `sha256` (string) for the uploaded bundle.
 | `download_queue_enabled` | boolean | if true, limit how many torrents can be downloaded at once
 | `download_queue_size` | number | max number of torrents to download at once (see `download_queue_enabled`)
 | `encryption` | string | `required`, `preferred`, `allowed`
-| `fork_features` | string[] | fork-specific capability identifiers. `auto_priority/v1` means the auto-priority settings and per-torrent `auto_priority` field are available. `min_free_space/v1` and `min_free_space_resume_margin/v1` mean this fork's minimum-free-space settings are available. `per_torrent_incomplete_dir/v1` means `incomplete_dir` can be set per torrent via `torrent_add`/`torrent_set` and is returned by `torrent_get`. `torrent_set_incomplete_dir/v1` means the `torrent_set_incomplete_dir` method is available to change the staging directory and optionally move existing data. `torrent_archive/v1` means the `torrent_archive` method is available. `torrent_archive_upload/v1` means `torrent_archive.import` accepts `data_base64`. `topic_name/v1` and `topic_url/v1` mean the read-only `topic_name` and `topic_url` torrent fields are available; they are read from the top-level `topic name` and `topic url` entries of the torrent metainfo. `status/v2` means statuses `7`, `8`, `9`, and `10` are available when the client opts in via the `X-Transmission-Client-Features` header.
+| `fork_features` | string[] | fork-specific capability identifiers. `auto_priority/v1` means the auto-priority settings and per-torrent `auto_priority` field are available. `metadata_only/v1` means the `metadata_only` field is available in `torrent_add`, `torrent_set`, and `torrent_get`. `min_free_space/v1` and `min_free_space_resume_margin/v1` mean this fork's minimum-free-space settings are available. `per_torrent_incomplete_dir/v1` means `incomplete_dir` can be set per torrent via `torrent_add`/`torrent_set` and is returned by `torrent_get`. `torrent_set_incomplete_dir/v1` means the `torrent_set_incomplete_dir` method is available to change the staging directory and optionally move existing data. `torrent_archive/v1` means the `torrent_archive` method is available. `torrent_archive_upload/v1` means `torrent_archive.import` accepts `data_base64`. `topic_name/v1` and `topic_url/v1` mean the read-only `topic_name` and `topic_url` torrent fields are available; they are read from the top-level `topic name` and `topic url` entries of the torrent metainfo. `status/v2` means statuses `7`, `8`, `9`, and `10` are available when the client opts in via the `X-Transmission-Client-Features` header.
 | `idle_seeding_limit` | number | torrents we're seeding will be stopped if they're idle for this long
 | `idle_seeding_limit_enabled` | boolean | true if the seeding inactivity limit is honored by default
 | `incomplete_dir` | string | path for incomplete torrents, when enabled
