@@ -1354,8 +1354,11 @@ void tr_session::on_queue_timer()
 
             for (auto* const tor : torrents())
             {
+                // High-priority torrents keep their queue position: the user
+                // asked for them explicitly and they should not be demoted by
+                // the inactivity heuristic.
                 if (tor->activity() != TR_STATUS_DOWNLOAD || tor->is_done() || !tor->has_metainfo() ||
-                    tor->size_when_done() == 0U || tor->percent_done() > 0.0)
+                    tor->size_when_done() == 0U || tor->percent_done() > 0.0 || tor->get_priority() == TR_PRI_HIGH)
                 {
                     continue;
                 }

@@ -13,7 +13,8 @@
   `.resume` files; `download` is accepted as an alias.
 - `queue_move_to_end_enabled` and `queue_move_to_end_minutes`: inactive
   downloads with no valid data are moved to the end of the download queue and
-  reported as waiting.
+  reported as waiting. Torrents with high bandwidth priority are exempt and keep
+  their queue position.
 - Per-torrent `incomplete_dir` and the `torrent_set_incomplete_dir` RPC method.
 - Read-only `topic_name` and `topic_url` torrent fields sourced from the
   top-level metainfo `topic name` and `topic url` entries.
