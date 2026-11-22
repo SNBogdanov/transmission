@@ -41,6 +41,11 @@
 
 ### Fixed
 
+- A completed torrent whose wanted files are no longer in the incomplete or
+  download directory is not retried for a completion move on every start. The
+  move is skipped with a warning instead of failing with a misleading
+  `No such file or directory` error, which happened after a done script moved
+  the data elsewhere and the torrent was not removed afterwards.
 - Nonstandard top-level torrent metadata (for example hamster.is `cover url`
   and `description` fields) is ignored without warning.
 - Archive entries keep the display names stored in their `.resume` files.

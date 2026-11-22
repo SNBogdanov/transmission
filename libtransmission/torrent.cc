@@ -1120,11 +1120,10 @@ void tr_torrent::resume_pending_move()
     // Recompute whether a completion move is still needed instead of trusting
     // current_dir(), which is derived from a single file and can already point
     // at the target after a partial move.
-    if (!std::empty(incomplete_dir()) && has_wanted_files_in(incomplete_dir().sv()))
-    {
-        session->enqueueDoneAction(id());
-    }
-    else if (current_dir() != download_dir())
+    auto const has_incomplete_data = !std::empty(incomplete_dir()) && has_wanted_files_in(incomplete_dir().sv());
+    auto const has_current_data = has_wanted_files_in(current_dir().sv());
+
+    if (has_incomplete_data || (current_dir() != download_dir() && has_current_data))
     {
         session->enqueueDoneAction(id());
     }

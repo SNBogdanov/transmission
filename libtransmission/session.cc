@@ -1159,6 +1159,19 @@ void tr_session::processDoneActionQueue()
             tor->has_wanted_files_in(tor->incomplete_dir().sv());
         auto const source = has_incomplete_data ? tor->incomplete_dir() : tor->current_dir();
 
+        // An external importer can move the data out of every directory this
+        // torrent knows about without removing the torrent afterwards. There
+        // is nothing to move in that case, and scheduling a move would only
+        // fail with ENOENT and leave the torrent errored.
+        if (!all_in_download && source != tor->download_dir() && !tor->has_wanted_files_in(source.sv()))
+        {
+            tor->set_pending_move(false);
+            tr_logAddWarnTor(
+                tor,
+                fmt::format("No wanted data in '{}'; skipping the completion move to '{}'", source, tor->download_dir().sv()));
+            continue;
+        }
+
         if (!all_in_download && source != tor->download_dir())
         {
             tor->script_on_done_pending_ = true;
