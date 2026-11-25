@@ -680,6 +680,36 @@ bool tr_torrent::call_script_if_enabled(TrScript type, tr_spawn_callback on_exit
     return callScriptIfEnabled(this, type, std::move(on_exit));
 }
 
+bool tr_torrent::call_script_with_locked_data(TrScript type)
+{
+    auto const tor_id = id();
+    auto* const session_ptr = this->session;
+
+    // Let the script move or delete the data: no descriptor may stay open and
+    // the daemon must not read or write these files while the script runs.
+    lock_data();
+
+    if (!call_script_if_enabled(
+            type,
+            [session_ptr, tor_id](int /*exit_status*/)
+            {
+                session_ptr->run_in_session_thread(
+                    [session_ptr, tor_id]()
+                    {
+                        if (auto* const tor = session_ptr->torrents().get(tor_id); tor != nullptr)
+                        {
+                            tor->unlock_data();
+                        }
+                    });
+            }))
+    {
+        unlock_data();
+        return false;
+    }
+
+    return true;
+}
+
 // ---
 
 void tr_torrent::stop_if_seed_limit_reached()
@@ -708,7 +738,7 @@ void tr_torrent::stop_if_seed_limit_reached()
 
     if (is_stopping_)
     {
-        callScriptIfEnabled(this, TR_SCRIPT_ON_TORRENT_DONE_SEEDING);
+        call_script_with_locked_data(TR_SCRIPT_ON_TORRENT_DONE_SEEDING);
     }
 }
 

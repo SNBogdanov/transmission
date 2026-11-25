@@ -964,6 +964,10 @@ struct tr_torrent
 
     bool call_script_if_enabled(TrScript type, tr_spawn_callback on_exit = {});
 
+    // Runs a script while the torrent's data is locked: descriptors are closed
+    // and local data reads/writes are blocked until the script exits.
+    bool call_script_with_locked_data(TrScript type);
+
     // Sum of the bytes actually allocated on disk for this torrent's files.
     [[nodiscard]] uint64_t size_on_disk(std::string_view dir = {}) const;
 
